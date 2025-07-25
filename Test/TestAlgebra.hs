@@ -2,6 +2,8 @@ module Test.TestAlgebra (testAlgebra) where
 
 import Algebra.Vector
 import Algebra.Matrix
+import Algebra.Metric
+import Algebra.Space
 import Algebra.Transform
   ( Translatable(..)
   , Scalable(..)
@@ -10,30 +12,23 @@ import Algebra.Transform
   , Reflectable(..)
   , Projectable(..)
   , rotationMatrix )
+  
 import Test.TestUtilities
 
 import Control.Monad (when)
 
--- Helper function for comparing vectors
-approxEqual :: (Floating a, Ord a) => a -> a -> Bool
-approxEqual a b = abs (a - b) < 1e-9
-
-approxEqualList :: [Double] -> [Double] -> Bool
-approxEqualList xs ys = and $ zipWith approxEqual xs ys
-
-approxEqualVector :: Vector Double -> Vector Double -> Bool
-approxEqualVector (Vector v1) (Vector v2) = approxEqualList v1 v2
-
 
 testAlgebra :: IO ()
 testAlgebra = do
-  putStrLn "\n🧮 Testing core linear algebra logic\n"
+  putStrLn "\n🧮 Testing Core Linear Algebra Modules\n"
   vectorTests
   matrixTests
+  metricTests
+  spaceTests
 
 vectorTests :: IO ()
 vectorTests = do
-  putStrLn "\n↑ Testing vector logic\n"
+  putStrLn "\n↑ Testing Vector Module\n"
   -- Explicitly type all vectors as Vector Double for clarity and type safety
   let v1, v2, v3 :: Vector Double
       v1 = vectorFromList [1.0, 2.0, 3.0]
@@ -185,22 +180,28 @@ vectorTests = do
 
   -- Skew test (2D shear: x += y * 1)
   let shearMatrix = matrixFromList [[1, 1], [0, 1]]
-  let vSkewed = skew shearMatrix v1
-  printTest "skewVector (2D shear x += y)" (vSkewed == Just (vectorFromList [4.0, 2.0]))
+      vSkew = vectorFromList [3.0, 2.0]  -- x = 3, y = 2 → x' = 3 + 2 = 5, y' = 2
+      expectedSkewed = vectorFromList [5.0, 2.0]
+  printTest "skewVector (2D shear x += y)" $
+    skew shearMatrix vSkew == Just expectedSkewed
 
   -- Reflect test (reflect over Y axis: x -> -x)
   let reflectMatrix = matrixFromList [[-1, 0], [0, 1]]
-  let vReflected = reflect reflectMatrix v1
-  printTest "reflectVector (reflect over Y axis)" (vReflected == Just (vectorFromList [-2.0, 2.0]))
+      vReflect = vectorFromList [2.0, 3.0]
+      expectedReflected = vectorFromList [-2.0, 3.0]
+  printTest "reflectVector (reflect over Y axis)" $
+    reflect reflectMatrix vReflect == Just expectedReflected
 
   -- Project test (project onto X axis)
   let projectMatrix = matrixFromList [[1, 0], [0, 0]]
-  let vProjected = project projectMatrix v1
-  printTest "projectVector (onto X axis)" (vProjected == Just (vectorFromList [2.0, 0.0]))
+      vProject = vectorFromList [3.0, 4.0]
+      expectedProjected = vectorFromList [3.0, 0.0]
+  printTest "projectVector (onto X axis)" $
+    project projectMatrix vProject == Just expectedProjected
 
 matrixTests :: IO ()
 matrixTests = do
-  putStrLn "\n🔢 Testing matrix logic\n"
+  putStrLn "\n🔢 Testing Matrix Module\n"
 
   let m1 = matrixFromList [[1, 2], [3, 4]]
       m2 = matrixFromList [[5, 6], [7, 8]]
@@ -228,3 +229,82 @@ matrixTests = do
 
   printTest "matrixMultiply dim mismatch" $
     matrixMultiply m1 [[1]] == Nothing
+
+metricTests :: IO ()
+metricTests = do
+  putStrLn "\n📐 Testing Metric Module\n"
+  -- Metric tests
+  let gMatrix = matrixFromList [[1.0, 0.0], [0.0, 1.0]]
+      metric = Metric gMatrix
+      u = vectorFromList [1.0, 2.0]
+      w = vectorFromList [3.0, 4.0]
+
+  -- innerProduct
+  printTest "innerProduct (Euclidean)" $
+    innerProduct metric u w == Just (1*3 + 2*4)  -- 11.0
+
+  -- distance
+  printTest "distance (Euclidean)" $
+    case distance metric u w of
+      Just d -> approxEqual d (sqrt ((3-1)^2 + (4-2)^2))  -- sqrt(8)
+      Nothing -> False
+
+  let gMatrixNonEuclid = matrixFromList [[2.0, 0.0], [0.0, 0.5]]
+      metricNE = Metric gMatrixNonEuclid
+      uNE = vectorFromList [1.0, 2.0]
+      wNE = vectorFromList [3.0, 4.0]
+
+  -- innerProduct with non-Euclidean metric
+  printTest "innerProduct (non-Euclidean)" $
+    innerProduct metricNE uNE wNE == Just (2*1*3 + 0.5*2*4)  -- 6 + 4 = 10
+
+  -- distance with non-Euclidean metric
+  printTest "distance (non-Euclidean)" $
+    case distance metricNE uNE wNE of
+      Just d -> approxEqual d (sqrt (2*(3-1)^2 + 0.5*(4-2)^2))  -- sqrt(8 + 2) = sqrt(10)
+      Nothing -> False
+
+spaceTests :: IO ()
+spaceTests = do
+  putStrLn "\n🌌 Testing Space Module\n"
+  let mEuclid = matrixFromList [[1.0, 0.0], [0.0, 1.0]]
+      spaceE = Space 2 (Metric mEuclid)
+      v1 = vectorFromList [3.0, 4.0]
+      v2 = vectorFromList [3.0, 0.0]
+      v3 = vectorFromList [0.0, 4.0]
+
+  -- normAt
+  printTest "normAt (Euclidean)" $
+    case normAt spaceE v1 of
+      Just n -> approxEqual n 5.0
+      Nothing -> False
+
+  -- distanceIn
+  printTest "distanceIn (Euclidean)" $
+    case distanceIn spaceE v2 v3 of
+      Just d -> approxEqual d 5.0
+      Nothing -> False
+
+  -- isOrthogonal
+  printTest "isOrthogonal (Euclidean)" $
+    isOrthogonal spaceE v2 v3
+
+  -- Non-Euclidean space
+  let mNE = matrixFromList [[2.0, 0.0], [0.0, 0.5]]
+      spaceNE = Space 2 (Metric mNE)
+
+  -- normAt (non-Euclidean)
+  printTest "normAt (non-Euclidean)" $
+    case normAt spaceNE v1 of
+      Just n -> approxEqual n (sqrt (2*9 + 0.5*16)) -- sqrt(18 + 8) = sqrt(26)
+      Nothing -> False
+
+  -- distanceIn (non-Euclidean)
+  printTest "distanceIn (non-Euclidean)" $
+    case distanceIn spaceNE v2 v3 of
+      Just d -> approxEqual d (sqrt (2*9 + 0.5*16))  -- same as norm between v2 and v3
+      Nothing -> False
+
+  -- isOrthogonal (non-Euclidean)
+  printTest "isOrthogonal (non-Euclidean)" $
+    isOrthogonal spaceNE v2 v3
