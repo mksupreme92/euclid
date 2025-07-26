@@ -1,5 +1,3 @@
-
-
 -- Geometry.Vertex
 -- Euclid Geometry Kernel — Vertex Definition
 -- A vertex is a point in space; it wraps a vector and supports transforms.
@@ -17,7 +15,6 @@ module Geometry.Vertex (
 ) where
 
 import Algebra.Vector
-import Algebra.Transform
 import Algebra.Space
 
 newtype Vertex a = Vertex (Vector a)
@@ -60,8 +57,3 @@ defineVertex :: Space a -> [a] -> Maybe (Vertex a)
 defineVertex space xs =
   let v = vertexFromList xs
   in if isValidVertex space v then Just v else Nothing
-
--- Transform typeclass instances
-instance Num a => Translatable Vertex a where
-  translate offset (Vertex v) = fmap Vertex (translate offset v)
-
