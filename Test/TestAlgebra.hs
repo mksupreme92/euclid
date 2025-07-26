@@ -3,7 +3,6 @@ module Test.TestAlgebra (testAlgebra) where
 import Algebra.Vector
 import Algebra.Matrix
 import Algebra.Metric
-import Algebra.Space
 import Algebra.Transform
   ( Translatable(..)
   , Scalable(..)
@@ -18,13 +17,16 @@ import Test.TestUtilities
 import Control.Monad (when)
 
 
+-- Euclidean metric for 3D (and general) tests
+euclidean3D :: Metric Double
+euclidean3D = Metric (identityMatrix 3)
+
 testAlgebra :: IO ()
 testAlgebra = do
   putStrLn "\n🧮 Testing Core Linear Algebra Modules\n"
   vectorTests
   matrixTests
   metricTests
-  spaceTests
 
 vectorTests :: IO ()
 vectorTests = do
@@ -71,7 +73,7 @@ vectorTests = do
       t1 = vectorFromList [1.0, 1.0, 1.0]
       t2 = vectorFromList [1.0, 2.0, 3.0]
   printTest "translate valid" $
-    case translate t1 t2 of
+    case translate euclidean3D t1 t2 of
       Just v -> v == vectorFromList [2.0, 3.0, 4.0]
       Nothing -> False
 
@@ -79,7 +81,7 @@ vectorTests = do
       t3 = vectorFromList [1.0, 1.0]
       t4 = vectorFromList [1.0, 2.0, 3.0]
   printTest "translate mismatched" $
-    case translate t3 t4 of
+    case translate euclidean3D t3 t4 of
       Just _ -> False
       Nothing -> True
 
@@ -87,8 +89,9 @@ vectorTests = do
   let s1, s2 :: Vector Double
       s1 = vectorFromList [2.0, 0.5, -1.0]
       s2 = vectorFromList [1.0, 2.0, 3.0]
+      identity2D = identityMatrix 3
   printTest "scale valid" $
-    case scale s1 s2 of
+    case scale (Metric identity2D) s1 s2 of
       Just v -> v == vectorFromList [2.0, 1.0, -3.0]
       Nothing -> False
 
@@ -96,7 +99,7 @@ vectorTests = do
       s3 = vectorFromList [2.0]
       s4 = vectorFromList [1.0, 2.0]
   printTest "scale mismatched" $
-    case scale s3 s4 of
+    case scale (Metric identity2D) s3 s4 of
       Just _ -> False
       Nothing -> True
 
@@ -110,7 +113,7 @@ vectorTests = do
       v2d = vectorFromList [1.0, 0.0]
       expectedRotated2D = [0.0, 1.0]
   printTest "rotateVector (2D matrix rotation 90 deg)" $
-    case rotate rotationMat2D v2d of
+    case rotate (Metric (identityMatrix 2)) rotationMat2D v2d of
       Just rotated -> approxEqualList (vectorToList rotated) expectedRotated2D
       Nothing -> False
 
@@ -125,7 +128,7 @@ vectorTests = do
       v3d = vectorFromList [1.0, 0.0, 0.0]
       expectedRotated3D = [0.0, 1.0, 0.0]
   printTest "rotateVector (3D Z-axis rotation 90 deg)" $
-    case rotate rotationMat3D v3d of
+    case rotate (Metric (identityMatrix 3)) rotationMat3D v3d of
       Just rotated -> approxEqualList (vectorToList rotated) expectedRotated3D
       Nothing -> False
 
@@ -141,14 +144,14 @@ vectorTests = do
       v4d = vectorFromList [1.0, 0.0, 0.0, 0.0]
       expectedRotated4D = [0.0, 1.0, 0.0, 0.0]
   printTest "rotateVector (4D XY-plane rotation 90 deg)" $
-    case rotate rotationMat4D v4d of
+    case rotate (Metric (identityMatrix 4)) (matrixFromList rotationMat4D) v4d of
       Just rotated -> approxEqualList (vectorToList rotated) expectedRotated4D
       Nothing -> False
 
   -- 5D rotation in first two dims by 90 degrees
   let angle5D = pi / 2 :: Double
-      rotationMat5D :: Matrix Double
-      rotationMat5D = matrixFromList
+      rotationMat5D :: [[Double]]
+      rotationMat5D =
         [[cos angle5D, -sin angle5D, 0, 0, 0],
          [sin angle5D,  cos angle5D, 0, 0, 0],
          [0,            0,           1, 0, 0],
@@ -158,12 +161,13 @@ vectorTests = do
       v5d = vectorFromList [1.0, 0.0, 0.0, 0.0, 0.0]
       expectedRotated5D = [0.0, 1.0, 0.0, 0.0, 0.0]
   printTest "rotateVector (5D plane rotation 90 deg)" $
-    case rotate rotationMat5D v5d of
+    case rotate (Metric (identityMatrix 5)) (matrixFromList rotationMat5D) v5d of
       Just rotated -> approxEqualList (vectorToList rotated) expectedRotated5D
       Nothing -> False
       
   -- scale then rotate composition
-  let angle = pi / 2 :: Double
+  let metric = Metric (identityMatrix 2)
+      angle = pi / 2 :: Double
       sVec :: Vector Double
       sVec = vectorFromList [2.0, 1.0]
       xVec :: Vector Double
@@ -174,30 +178,31 @@ vectorTests = do
       expectedComposed = vectorFromList [0.0, 2.0]
 
   printTest "scale then rotate composition" $
-    case scale sVec xVec >>= rotate rotMat of
+    case scale metric sVec xVec >>= rotate metric rotMat of
       Just result -> approxEqualVector result expectedComposed
       Nothing -> False
 
   -- Skew test (2D shear: x += y * 1)
-  let shearMatrix = matrixFromList [[1, 1], [0, 1]]
-      vSkew = vectorFromList [3.0, 2.0]  -- x = 3, y = 2 → x' = 3 + 2 = 5, y' = 2
-      expectedSkewed = vectorFromList [5.0, 2.0]
-  printTest "skewVector (2D shear x += y)" $
-    skew shearMatrix vSkew == Just expectedSkewed
+  let metric = Metric [[1, 0], [0, 1]]
+      shearMatrix = [[1, 1], [0, 1]]
+      vSkew = Vector [2, 3]
+      expectedSkewed = Vector [5, 3]
+  printTest "Skew" $
+    skew metric shearMatrix vSkew == Just expectedSkewed
 
   -- Reflect test (reflect over Y axis: x -> -x)
-  let reflectMatrix = matrixFromList [[-1, 0], [0, 1]]
-      vReflect = vectorFromList [2.0, 3.0]
-      expectedReflected = vectorFromList [-2.0, 3.0]
-  printTest "reflectVector (reflect over Y axis)" $
-    reflect reflectMatrix vReflect == Just expectedReflected
+  let reflectMatrix = [[1, 0], [0, -1]]
+      vReflect = Vector [2, 3]
+      expectedReflected = Vector [2, -3]
+  printTest "Reflect" $
+    reflect metric reflectMatrix vReflect == Just expectedReflected
 
   -- Project test (project onto X axis)
-  let projectMatrix = matrixFromList [[1, 0], [0, 0]]
-      vProject = vectorFromList [3.0, 4.0]
-      expectedProjected = vectorFromList [3.0, 0.0]
-  printTest "projectVector (onto X axis)" $
-    project projectMatrix vProject == Just expectedProjected
+  let projectMatrix = [[1, 0], [0, 0]]
+      vProject = Vector [2, 3]
+      expectedProjected = Vector [2, 0]
+  printTest "Project" $
+    project metric projectMatrix vProject == Just expectedProjected
 
 matrixTests :: IO ()
 matrixTests = do
@@ -264,47 +269,9 @@ metricTests = do
       Just d -> approxEqual d (sqrt (2*(3-1)^2 + 0.5*(4-2)^2))  -- sqrt(8 + 2) = sqrt(10)
       Nothing -> False
 
-spaceTests :: IO ()
-spaceTests = do
-  putStrLn "\n🌌 Testing Space Module\n"
-  let mEuclid = matrixFromList [[1.0, 0.0], [0.0, 1.0]]
-      spaceE = Space 2 (Metric mEuclid)
-      v1 = vectorFromList [3.0, 4.0]
-      v2 = vectorFromList [3.0, 0.0]
-      v3 = vectorFromList [0.0, 4.0]
+  -- isEuclidean
+  printTest "isEuclidean (true)" $
+    isEuclidean metric == True
 
-  -- normAt
-  printTest "normAt (Euclidean)" $
-    case normAt spaceE v1 of
-      Just n -> approxEqual n 5.0
-      Nothing -> False
-
-  -- distanceIn
-  printTest "distanceIn (Euclidean)" $
-    case distanceIn spaceE v2 v3 of
-      Just d -> approxEqual d 5.0
-      Nothing -> False
-
-  -- isOrthogonal
-  printTest "isOrthogonal (Euclidean)" $
-    isOrthogonal spaceE v2 v3
-
-  -- Non-Euclidean space
-  let mNE = matrixFromList [[2.0, 0.0], [0.0, 0.5]]
-      spaceNE = Space 2 (Metric mNE)
-
-  -- normAt (non-Euclidean)
-  printTest "normAt (non-Euclidean)" $
-    case normAt spaceNE v1 of
-      Just n -> approxEqual n (sqrt (2*9 + 0.5*16)) -- sqrt(18 + 8) = sqrt(26)
-      Nothing -> False
-
-  -- distanceIn (non-Euclidean)
-  printTest "distanceIn (non-Euclidean)" $
-    case distanceIn spaceNE v2 v3 of
-      Just d -> approxEqual d (sqrt (2*9 + 0.5*16))  -- same as norm between v2 and v3
-      Nothing -> False
-
-  -- isOrthogonal (non-Euclidean)
-  printTest "isOrthogonal (non-Euclidean)" $
-    isOrthogonal spaceNE v2 v3
+  printTest "isEuclidean (false)" $
+    isEuclidean metricNE == False

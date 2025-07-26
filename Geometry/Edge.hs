@@ -1,5 +1,3 @@
-
-
 module Geometry.Edge (
     Edge(..),
     lineFromVertexAndVector,
@@ -9,8 +7,10 @@ module Geometry.Edge (
 ) where
 
 import Algebra.Vector
-import Algebra.Space
+import Algebra.Matrix
+import Algebra.Metric
 import Geometry.Vertex
+
 
 -- | An edge can be an infinite line, a ray, or a segment.
 data Edge a
@@ -37,17 +37,20 @@ segmentFromVertices v1@(Vertex p1) v2@(Vertex p2) = do
   return (Segment v1 v2)
 
 -- | Safe constructor with space validation for all edge types
-defineEdge :: Num a => Space a -> Edge a -> Maybe (Edge a)
-defineEdge (Space d _) edge = case edge of
-  InfiniteLine (Vertex p) dir
-    | length (vectorToList p) == d && length (vectorToList dir) == d -> Just edge
-    | otherwise -> Nothing
-  Ray (Vertex p) dir
-    | length (vectorToList p) == d && length (vectorToList dir) == d -> Just edge
-    | otherwise -> Nothing
-  Segment (Vertex p1) (Vertex p2)
-    | length (vectorToList p1) == d && length (vectorToList p2) == d -> Just edge
-    | otherwise -> Nothing
+defineEdge :: Num a => Metric a -> Edge a -> Maybe (Edge a)
+defineEdge (Metric m) edge =
+  let (rows, cols) = matrixDimensions m
+      check v = length (vectorToList v) == rows && cols == rows
+  in case edge of
+       InfiniteLine (Vertex p) dir
+         | check p && check dir -> Just edge
+         | otherwise            -> Nothing
+       Ray (Vertex p) dir
+         | check p && check dir -> Just edge
+         | otherwise            -> Nothing
+       Segment (Vertex p1) (Vertex p2)
+         | check p1 && check p2 -> Just edge
+         | otherwise            -> Nothing
 
 -- | Utility to check vector is not zero-length (optional for stricter validation)
 isValidVector :: (Eq a, Num a) => Vector a -> Bool

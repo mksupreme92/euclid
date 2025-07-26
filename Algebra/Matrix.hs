@@ -5,6 +5,7 @@ module Algebra.Matrix
   , matrixVectorProduct
   , transpose
   , matrixMultiply
+  , matrixDimensions
   ) where
 
 type Matrix a = [[a]]
@@ -34,3 +35,6 @@ matrixMultiply a b =
   in if all (\row -> length row == length bT) a
        then Just [ [ sum $ zipWith (*) row col | col <- bT ] | row <- a ]
        else Nothing
+
+matrixDimensions :: Matrix a -> (Int, Int)
+matrixDimensions m = (length m, if null m then 0 else length (head m))

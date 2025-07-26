@@ -2,6 +2,7 @@ module Algebra.Metric
   ( Metric(..)
   , innerProduct
   , distance
+  , isEuclidean
   ) where
 
 import Algebra.Vector
@@ -23,3 +24,10 @@ distance metric v w = do
   delta <- vectorSub v w
   ip <- innerProduct metric delta delta
   return (sqrt ip)
+
+
+-- | Checks if the metric is Euclidean (i.e., identity matrix)
+isEuclidean :: (Eq a, Num a) => Metric a -> Bool
+isEuclidean (Metric m) =
+  let n = length m
+  in m == identityMatrix n

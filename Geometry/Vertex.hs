@@ -1,20 +1,17 @@
--- Geometry.Vertex
--- Euclid Geometry Kernel — Vertex Definition
--- A vertex is a point in space; it wraps a vector and supports transforms.
-
 module Geometry.Vertex (
     Vertex(..),
     vertexFromList,
     vertexToVector,
     vertexDimension,
-    isValidVertex,
-    assertVertexInSpace,
+    isValidVertexForMetric,
+    assertVertexInMetric,
     distanceBetween,
     defineVertex
 ) where
 
 import Algebra.Vector
-import Algebra.Space
+import Algebra.Metric (Metric(..), distance)
+import qualified Algebra.Matrix as M
 
 newtype Vertex a = Vertex (Vector a)
   deriving (Eq, Show)
@@ -31,22 +28,29 @@ vertexToVector (Vertex v) = v
 vertexDimension :: Vertex a -> Int
 vertexDimension (Vertex v) = length (vectorToList v)
 
--- Validity check against a space
-isValidVertex :: Space a -> Vertex a -> Bool
-isValidVertex space (Vertex v) = length (vectorToList v) == dim space
+isValidVertexForMetric :: Metric a -> Vertex a -> Bool
+isValidVertexForMetric (Metric m) (Vertex v) =
+  let (rows, cols) = M.matrixDimensions m
+  in rows == length (vectorToList v) && cols == length (vectorToList v)
 
--- Validate a vertex is in the space
-assertVertexInSpace :: Space a -> Vertex a -> Maybe (Vertex a)
-assertVertexInSpace space v = if isValidVertex space v then Just v else Nothing
+-- | Assert that a vertex is valid under the given metric
+assertVertexInMetric :: Metric a -> Vertex a -> Maybe (Vertex a)
+assertVertexInMetric metric v
+  | isValidVertexForMetric metric v = Just v
+  | otherwise                       = Nothing
 
 
-
--- Distance between vertices in a space
-distanceBetween :: Floating a => Space a -> Vertex a -> Vertex a -> Maybe a
-distanceBetween space (Vertex v1) (Vertex v2) = distanceIn space v1 v2
+-- | DEPRECATED: This function will be replaced by generalized measurement logic in the Metric module.
+distanceBetween :: Floating a => Metric a -> Vertex a -> Vertex a -> Maybe a
+distanceBetween metric v1 v2
+  | isValidVertexForMetric metric v1 && isValidVertexForMetric metric v2 =
+      let Vertex vec1 = v1
+          Vertex vec2 = v2
+      in distance metric vec1 vec2
+  | otherwise = Nothing
 
 -- Validated constructor from list
-defineVertex :: Space a -> [a] -> Maybe (Vertex a)
-defineVertex space xs =
+defineVertex :: Metric a -> [a] -> Maybe (Vertex a)
+defineVertex metric xs =
   let v = vertexFromList xs
-  in if isValidVertex space v then Just v else Nothing
+  in if isValidVertexForMetric metric v then Just v else Nothing

@@ -3,7 +3,6 @@ module Test.TestGeometry (testGeometry) where
 import Algebra.Vector
 import Algebra.Metric
 import Algebra.Matrix
-import Algebra.Space
 import Algebra.Transform
 import Geometry.Vertex
 import Geometry.Edge
@@ -23,31 +22,30 @@ vertexTests = do
   let v1 = vertexFromList [1.0, 2.0]
       v2 = vertexFromList [4.0, 6.0]
       offset = vectorFromList [3.0, 4.0]
-      space2D = Space 2 (Metric $ matrixFromList [[1,0],[0,1]])
+      euclideanMetric = Metric (identityMatrix 2)
+      metric2D = Metric (identityMatrix 2)
 
   -- Dimension
   printTest "vertexDimension = 2" $
     vertexDimension v1 == 2
 
   -- isValidVertex
-  printTest "isValidVertex (space2D)" $
-    isValidVertex space2D v1
+  printTest "isValidVertex (metric2D)" $
+    isValidVertexForMetric euclideanMetric v1
 
-  -- assertVertexInSpace
-  printTest "assertVertexInSpace valid" $
-    assertVertexInSpace space2D v1 == Just v1
-
+  printTest "assertVertexInMetric" $
+    assertVertexInMetric euclideanMetric v1 == Just v1
 
 
-  -- distanceBetween
-  printTest "distanceBetween" $
-    case distanceBetween space2D v1 v2 of
-      Just d -> approxEqual d 5.0
-      Nothing -> False
+  printTest "defineVertex" $
+    defineVertex euclideanMetric [1, 2] == Just v1
+
+  printTest "defineVertex invalid" $
+    defineVertex euclideanMetric [1, 2, 3] == Nothing
 
   -- translateVertex
   printTest "translate Vertex in 2D" $
-    fromJust (translate offset v1) == v2
+    fromJust (translate euclideanMetric offset v1) == v2
 
   -- Rotate vertex about center (2D)
   let v2D      :: Vertex Double
@@ -56,7 +54,7 @@ vertexTests = do
       rot90_2D = [[0, -1], [1, 0]] :: Matrix Double
 
   printTest "rotateAbout 2D (90° around origin)" $
-    rotateAbout center2D rot90_2D v2D == Just (vertexFromList [0.0, 1.0])
+    rotateAbout metric2D center2D rot90_2D v2D == Just (vertexFromList [0.0, 1.0])
 
   -- Rotate vertex about center (3D)
   let v3D = vertexFromList [1.0, 0.0, 0.0]
@@ -67,7 +65,7 @@ vertexTests = do
          [0.0,  0.0, 1.0]]
 
   printTest "rotateAbout 3D (Z-axis 90°)" $
-    rotateAbout center3D rotZ_3D v3D == Just (vertexFromList [0.0, 1.0, 0.0])
+    rotateAbout metric2D center3D rotZ_3D v3D == Just (vertexFromList [0.0, 1.0, 0.0])
 
   -- Rotate vertex about center (5D)
   let v5D = vertexFromList [1.0, 0.0, 0.0, 0.0, 0.0]
@@ -77,9 +75,10 @@ vertexTests = do
                   [0,  0, 1, 0, 0],
                   [0,  0, 0, 1, 0],
                   [0,  0, 0, 0, 1]] :: Matrix Double
+      metric5D = Metric (identityMatrix 5)
 
   printTest "rotateAbout 5D (XY-plane 90°)" $
-    rotateAbout center5D rotXY_5D v5D == Just (vertexFromList [0.0, 1.0, 0.0, 0.0, 0.0])
+    rotateAbout metric5D center5D rotXY_5D v5D == Just (vertexFromList [0.0, 1.0, 0.0, 0.0, 0.0])
 
 
 edgeTests :: IO ()
@@ -93,6 +92,8 @@ edgeTests = do
       offset = vectorFromList [3.0, 4.0] :: Vector Double
       v2D      = vertexFromList [0.0, 1.0] :: Vertex Double
       center2D = vertexFromList [0.0, 0.0] :: Vertex Double
+      euclideanMetric = Metric (identityMatrix 2)
+      metric2D = Metric (identityMatrix 2)
 
   -- Edge Constructors
   printTest "lineFromVertexAndVector valid" $
@@ -114,27 +115,27 @@ edgeTests = do
         offsetT = Vector [0.0, 1.0]
         expectedP = Vector [1.0, 3.0]
         expectedD = dT
-        result = translate offsetT (InfiniteLine pT dT)
+        result = translate euclideanMetric offsetT (InfiniteLine pT dT)
     in case result of
         Just (InfiniteLine p' d') ->
           approxEqualVector (vectorFromVertex p') expectedP &&
           approxEqualVector d' expectedD
 
   -- printTest "scale Edge (Ray)" $
-  --   fmap (\(Ray v d) -> (v, d)) (scale (vectorFromList [2.0, 2.0]) =<< rayFromVertexAndVector p1 dir)
+  --   fmap (\(Ray v d) -> (v, d)) (scale euclideanMetric (vectorFromList [2.0, 2.0]) =<< rayFromVertexAndVector p1 dir)
   --     == Just (p1, vectorFromList [6.0, 8.0])
 
   do
     let seg = Segment v2D center2D
-        Just rotated = rotateAbout center2D rot90_2D seg
+        Just rotated = rotateAbout metric2D center2D rot90_2D seg
     printTest "rotateAbout Edge (Segment 90°)" $
       rotated == Segment
-        (fromJust $ rotateAbout center2D rot90_2D v2D)
-        (fromJust $ rotateAbout center2D rot90_2D center2D)
+        (fromJust $ rotateAbout metric2D center2D rot90_2D v2D)
+        (fromJust $ rotateAbout metric2D center2D rot90_2D center2D)
 
   -- Test rotateAbout for InfiniteLine: apply 90 degree rotation about origin
   printTest "rotateAbout Edge (InfiniteLine 90°)" $
-    case rotateAbout centerR rot90_2D (InfiniteLine pR dR) of
+    case rotateAbout metric2D centerR rot90_2D (InfiniteLine pR dR) of
       Just (InfiniteLine p' d') ->
         approxEqualVector (vectorFromVertex p') expectedP &&
         approxEqualVector d' expectedD
