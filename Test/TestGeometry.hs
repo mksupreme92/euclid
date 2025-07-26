@@ -37,15 +37,17 @@ vertexTests = do
   printTest "assertVertexInSpace valid" $
     assertVertexInSpace space2D v1 == Just v1
 
-  -- translateVertex
-  printTest "translateVertex +offset" $
-    translateVertex space2D v1 offset == Just v2
+
 
   -- distanceBetween
   printTest "distanceBetween" $
     case distanceBetween space2D v1 v2 of
       Just d -> approxEqual d 5.0
       Nothing -> False
+
+  -- translateVertex
+  printTest "translate Vertex in 2D" $
+    fromJust (translate offset v1) == v2
 
   -- Rotate vertex about center (2D)
   let v2D      :: Vertex Double
@@ -105,9 +107,18 @@ edgeTests = do
   -- Edge Transformations
   let rot90_2D = matrixFromList [[0, -1], [1, 0]] :: Matrix Double
 
+  -- Updated test: translate InfiniteLine, check base point and direction vector
   printTest "translate Edge (InfiniteLine)" $
-    fmap (\(InfiniteLine v d) -> (v, d)) (translate offset =<< lineFromVertexAndVector p1 dir)
-      == Just (fromJust (translate offset p1), dir)
+    let pT = Vertex (Vector [1.0, 2.0])
+        dT = Vector [1.0, 0.0]
+        offsetT = Vector [0.0, 1.0]
+        expectedP = Vector [1.0, 3.0]
+        expectedD = dT
+        result = translate offsetT (InfiniteLine pT dT)
+    in case result of
+        Just (InfiniteLine p' d') ->
+          approxEqualVector (vectorFromVertex p') expectedP &&
+          approxEqualVector d' expectedD
 
   -- printTest "scale Edge (Ray)" $
   --   fmap (\(Ray v d) -> (v, d)) (scale (vectorFromList [2.0, 2.0]) =<< rayFromVertexAndVector p1 dir)
@@ -121,6 +132,16 @@ edgeTests = do
         (fromJust $ rotateAbout center2D rot90_2D v2D)
         (fromJust $ rotateAbout center2D rot90_2D center2D)
 
-  printTest "rotateAbout Edge (InfiniteLine)" $
-    fmap (\(InfiniteLine v d) -> (v, d)) (rotateAbout center2D rot90_2D =<< lineFromVertexAndVector v2D (vectorFromList [1.0, 0.0]))
-      == Just (vertexFromList [0.0, 1.0], vectorFromList [0.0, 1.0])
+  -- Test rotateAbout for InfiniteLine: apply 90 degree rotation about origin
+  printTest "rotateAbout Edge (InfiniteLine 90°)" $
+    case rotateAbout centerR rot90_2D (InfiniteLine pR dR) of
+      Just (InfiniteLine p' d') ->
+        approxEqualVector (vectorFromVertex p') expectedP &&
+        approxEqualVector d' expectedD
+      _ -> False
+    where
+      pR = vertexFromList [1.0, 0.0]
+      dR = vectorFromList [1.0, 0.0]
+      centerR = vertexFromList [0.0, 0.0]
+      expectedP = vectorFromList [0.0, 1.0]
+      expectedD = vectorFromList [0.0, 1.0]

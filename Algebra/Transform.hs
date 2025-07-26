@@ -47,8 +47,8 @@ instance Num a => Translatable Vertex a where
   translate offset (Vertex v) = fmap Vertex (translate offset v)
 
 instance Num a => Translatable Edge a where
-  translate offset (InfiniteLine p d) = InfiniteLine <$> translate offset p <*> translate offset d
-  translate offset (Ray p d)          = Ray <$> translate offset p <*> translate offset d
+  translate offset (InfiniteLine p d) = InfiniteLine <$> translate offset p <*> Just d
+  translate offset (Ray p d)          = Ray <$> translate offset p <*> Just d
   translate offset (Segment p1 p2)    = Segment <$> translate offset p1 <*> translate offset p2
 
 instance Num a => Scalable Vector a where

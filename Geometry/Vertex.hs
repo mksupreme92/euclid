@@ -9,7 +9,6 @@ module Geometry.Vertex (
     vertexDimension,
     isValidVertex,
     assertVertexInSpace,
-    translateVertex,
     distanceBetween,
     defineVertex
 ) where
@@ -40,13 +39,7 @@ isValidVertex space (Vertex v) = length (vectorToList v) == dim space
 assertVertexInSpace :: Space a -> Vertex a -> Maybe (Vertex a)
 assertVertexInSpace space v = if isValidVertex space v then Just v else Nothing
 
--- Space-aware translation
-translateVertex :: Num a => Space a -> Vertex a -> Vector a -> Maybe (Vertex a)
-translateVertex space (Vertex v) offset =
-  if length (vectorToList v) == length (vectorToList offset)
-     && length (vectorToList v) == dim space
-     then fmap Vertex (vectorAdd v offset)
-     else Nothing
+
 
 -- Distance between vertices in a space
 distanceBetween :: Floating a => Space a -> Vertex a -> Vertex a -> Maybe a
