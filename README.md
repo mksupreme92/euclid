@@ -6,8 +6,8 @@ Written in **Haskell** for mathematical rigor and extensibility with meshing and
 
 **Architecture**:
 - ✒️ **Elementa**: A Ruby/OCaml-inspired DSL for expressive, readable geometry construction.
-- 🧠 **Haskell Algebra and Geometry Core**: Functional backbone with strong typing, purity, and unit-tested primitives.
-- ⚙️ **Rust Rendering and Meshing**: High-performance meshing and rendering.
+- 🧠 **[Haskell](https://www.haskell.org) Algebra and Geometry Core**: Functional backbone with strong typing, purity, and unit-tested primitives.
+- ⚙️ **[Rust](https://www.rust-lang.org) Rendering and Meshing**: High-performance meshing and rendering.
 
 Euclid is for builders, researchers, and rebels—those who want to *design reality* using clean code and solid math, not overpriced GUI clickfests.
 
@@ -38,11 +38,11 @@ Euclid is for builders, researchers, and rebels—those who want to *design real
 - [ ] `plane.hs`
 - [ ] `face.hs` — Polygon face with convexity, winding, etc.
 - [ ] `surface.hs` — 
-    - [ ] parametric surface
-    - [ ] meshing & area integration in Rust via FFI
+    - [ ] Parametric surface
+    - [ ] Meshing & area integration in Rust via FFI
 - [ ] `volume.hs`
-    - [ ]  Parametric volume logic (ℝ³ → ℝⁿ)
-    - [ ] tetrahedral meshing & volume integration in Rust via FFI
+    - [ ] Parametric volume logic (ℝ³ → ℝⁿ)
+    - [ ] Tetrahedral meshing & volume integration in Rust via FFI
 
 ## 🧮 Algebraic Operations
 
