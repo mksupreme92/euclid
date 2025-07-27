@@ -40,14 +40,14 @@ Euclid is for builders, researchers, and rebels—those who want to *design real
 - [ ] `surface.hs` — 
     - [ ] parametric surface
     - [ ] meshing & area integration in Rust via FFI
-- [ ] `volume.hs` 
-    — [ ] Parametric volume logic (ℝ³ → ℝⁿ)
+- [ ] `volume.hs`
+    - [ ]  Parametric volume logic (ℝ³ → ℝⁿ)
     - [ ] tetrahedral meshing & volume integration in Rust via FFI
 
 ## 🧮 Algebraic Operations
 
 - [ ] `transform.hs` — Rotations, translations, projections, scaling, etc. (note: metric based operations are WIP)
-- [ ] `boolean.hs`— Boolean operations (union, subtract, intersect)
+- [ ] `boolean.hs` — Boolean operations (union, subtract, intersect)
 - [ ] `collision.hs` (optional) — Collision and intersection logic
 
 
