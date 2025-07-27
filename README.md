@@ -56,7 +56,7 @@ Euclid is for builders, researchers, and rebels—those who want to *design real
 ## 🔢 Numerical Methods
 
 - [ ] `sampling.hs` - sampling/surface and volume division for meshing
-- [x] `integrate.hs` — Runge-Kutta 4 (RK4) and general-purpose ODE integration
+- [ ] `integrate.hs` — Runge-Kutta 4 (RK4) and general-purpose ODE integration
 - [ ] `numerics/differentiate.hs` — Numerical differentiation (finite difference, etc.)
 - [ ] `numerics/jacobian.hs` — Jacobian matrix and determinant computations for volume integration
 
