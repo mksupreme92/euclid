@@ -1,0 +1,57 @@
+# Haskell build artifacts
+dist/
+dist-newstyle/
+*.hi
+*.o
+*.dyn_o
+*.dyn_hi
+*.prof
+*.aux
+*.hp
+*.eventlog
+
+# Cabal & Stack files
+.cabal-sandbox/
+.stack-work/
+cabal.project.local
+cabal.project.local~*
+
+# Haskell REPL / tooling
+.ghc.environment.*
+ghci-history
+*.tix
+*.haddock
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# IDEs / Editors
+*.swp
+*~
+*.bak
+*.tmp
+*.sublime-workspace
+.vscode/
+.idea/
+
+# Rust (when used for rendering)
+target/
+Cargo.lock
+
+# Binary & mesh output
+*.obj
+*.mesh
+*.jpg
+*.bmp
+*.gif
+
+# Logs & backups
+*.log
+*.out
+*.err
+
+# Elementa experimental files
+*.elmt
+*.dsltest
+add-license-header.sh
