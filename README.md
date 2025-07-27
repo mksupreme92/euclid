@@ -7,7 +7,7 @@ Written in **Haskell** for mathematical rigor and extensibility with meshing and
 **Architecture**:
 - ✒️ **Elementa**: A Ruby/OCaml-inspired DSL for expressive, readable geometry construction.
 - 🧠 **Algebra and Geometry Core written in [Haskell](https://www.haskell.org)**: Functional backbone with strong typing, purity, and unit-tested primitives.
-- ⚙️ **Rendering and Meshing in [Rust](https://www.rust-lang.org) **: High-performance meshing and rendering.
+- ⚙️ **Rendering and Meshing in [Rust](https://www.rust-lang.org)**: High-performance meshing and rendering.
 
 Euclid is for builders, researchers, and rebels—those who want to *design reality* using clean code and solid math, not overpriced GUI clickfests.
 
