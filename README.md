@@ -23,49 +23,49 @@ Euclid is for builders, researchers, and rebels—those who want to *design real
 
 ## ⚙️ Core Linear Algebra Infrastructure
 
-- [x] `vector.hs` — Vector math (add, sub, norm, dot, etc.)
-- [x] `matrix.hs` — Matrix operations
-- [ ] `metric.hs`
+- [x] `Algebra/Vector.hs` — Vector math (add, sub, norm, dot, etc.)
+- [x] `Algebra/Matrix.hs` — Matrix operations
+- [ ] `Algebra/Metric.hs`
     - [x] Core infrastrucure (inner products, etc.)
     - [ ] Measurement operations for vectors and all geometry primitives
 
 ## 📐 Geometry Primitives
 
-- [x] `vertex.hs`
-- [x] `edge.hs`
-- [ ] `curve.hs` — Parametric curves, splines
+- [x] `Geometry/Vertex.hs`
+- [x] `Geometry/Edge.hs`
+- [ ] `Geometry/Curve.hs` — Parametric curves, splines
     - [ ] Linear Curves
         - test for 2D–5D, negatives, irrationals, and extrapolation
     - [ ] Parametric Nonlinear Curves
-- [ ] `plane.hs`
-- [ ] `face.hs` — Polygon face with convexity, winding, etc.
-- [ ] `surface.hs` — 
+- [ ] `Geometry/Plane.hs`
+- [ ] `Geometry/Face.hs` — Polygon face with convexity, winding, etc.
+- [ ] `Geometry/Surface.hs` — 
     - [ ] Parametric surface
     - [ ] Meshing & area integration in Rust via FFI
-- [ ] `volume.hs`
+- [ ] `Geometry/Volume.hs`
     - [ ] Parametric volume logic (ℝ³ → ℝⁿ)
     - [ ] Tetrahedral meshing & volume integration in Rust via FFI
 
 ## 🧮 Algebraic Operations
 
-- [ ] `transform.hs` — Rotations, translations, projections, scaling, etc. (note: metric based operations are WIP)
-- [ ] `boolean.hs` — Boolean operations (union, subtract, intersect)
-- [ ] `collision.hs` (optional) — Collision and intersection logic
+- [ ] `Algebra/Transform.hs` — Rotations, translations, projections, scaling, etc. (note: metric based operations are WIP)
+- [ ] `Algebra/Boolean.hs` — Boolean operations (union, subtract, intersect)
+- [ ] `Algebra/Collision.hs` — Collision and intersection logic
 
 
 ## 🔢 Numerical Methods
 
-- [ ] `sampling.hs` - sampling/surface and volume division for meshing
-- [ ] `integrate.hs` — Runge-Kutta 4 (RK4) and general-purpose ODE integration
-- [ ] `numerics/differentiate.hs` — Numerical differentiation (finite difference, etc.)
-- [ ] `numerics/jacobian.hs` — Jacobian matrix and determinant computations for volume integration
+- [ ] `Numerics/Sampling.hs` - sampling/surface and volume division for meshing
+- [ ] `Numerics/Integrate.hs` — Runge-Kutta 4 integration
+- [ ] `Numerics/Differentiate.hs` — Numerical differentiation (finite difference, etc.)
+- [ ] `Numerics/Jacobian.hs` — Jacobian matrix and determinant computations for volume integration
 
-## ✒️ Elementa Progaming Language
+## ✒️ Elementa Programing Language
 
-- [ ] `elementa.hs` — Elementa DSL language layer
+- [ ] `Elementa.hs` — Elementa DSL language layer
     - [ ] Grammar
     - [ ] Syntax
-- [ ] `parser.hs` — Parser/interpreter for Elementa DSL
+- [ ] `Parser.hs` — Parser/interpreter for Elementa DSL
 
 ## 🎬 Rendering and Visualization
 
