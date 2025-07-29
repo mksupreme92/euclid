@@ -15,8 +15,11 @@ Euclid is for builders, researchers, and rebels—those who want to *design real
 
 ---
 
-📦 **Current Phase**: V2 Refactor in Progress  
+📦 **Current Phase**: V1 Refactor in Progress  
 🛠️ Rebuilding core infrastructure for better composability, transformation logic, and Rust interop.
+    - 📘 See [euclid-legacy](https://github.com/mksupreme92/euclid-legacy) repo for V0 prototype with most functionality completed: 
+        - Geometry including points, lines, parametric curves, planes/faces, parametric surfaces, & parametric volumes in arbitrary dimensions  
+        - Surface and Volume meshing  
 ---
 
 ## 🏗️ TODO
