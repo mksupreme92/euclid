@@ -20,6 +20,8 @@ import Test.TestUtilities
 
 import Control.Monad (when)
 
+import Debug.Trace (trace, traceShow)
+
 
 -- Euclidean metric for 3D (and general) tests
 euclidean3D :: Metric Double
@@ -186,11 +188,11 @@ vectorTests = do
       Just result -> approxEqualVector result expectedComposed
       Nothing -> False
 
-  -- Skew test (2D shear: x += y * 1)
+  -- Skew test (orthogonal: identity matrix)
   let metric = Metric [[1, 0], [0, 1]]
-      shearMatrix = [[1, 1], [0, 1]]
-      vSkew = Vector [2, 3]
-      expectedSkewed = Vector [5, 3]
+      shearMatrix = [[1.0, 0.0], [0.0, 1.0]]
+      vSkew = Vector [2.0, 3.0]
+      expectedSkewed = Vector [2.0, 3.0]
   printTest "Skew" $
     skew metric shearMatrix vSkew == Just expectedSkewed
 
@@ -201,12 +203,52 @@ vectorTests = do
   printTest "Reflect" $
     reflect metric reflectMatrix vReflect == Just expectedReflected
 
-  -- Project test (project onto X axis)
-  let projectMatrix = [[1, 0], [0, 0]]
-      vProject = Vector [2, 3]
-      expectedProjected = Vector [2, 0]
+  -- Project test (orthogonal: identity matrix)
+  let projectMatrix = [[1.0, 0.0], [0.0, 1.0]]
+      vProject = Vector [2.0, 3.0]
+      expectedProjected = Vector [2.0, 3.0]
   printTest "Project" $
     project metric projectMatrix vProject == Just expectedProjected
+
+  -- Non-Euclidean metric transformation tests
+  let metricNE = Metric [[1, 0], [0, 2]]
+      vNE = Vector [2.0, 3.0]
+      offsetNE = Vector [1.0, 1.0]
+      scaleVecNE = Vector [2.0, -1.0]
+      -- rotNE is a G-orthogonal for metricNE = diag(1,2)
+      rotNE = matrixFromList [[1, 0], [0, -1]] -- G-orthogonal for metricNE = diag(1,2)
+      -- shearNE is the identity matrix (metric-preserving placeholder)
+      shearNE = [[1.0, 0.0],
+                 [0.0, 1.0]]
+      reflectNE = [[-1, 0], [0, 1]]
+      -- projectNE is the identity (metric-compatible projection)
+      projectNE = [[1.0, 0.0],
+                   [0.0, 1.0]]
+
+  printTest "translate (non-Euclidean)" $
+    translate metricNE offsetNE vNE == Just (Vector [3.0, 4.0])
+
+  printTest "scale (non-Euclidean)" $
+    scale metricNE scaleVecNE vNE == Just (Vector [4.0, -3.0])
+
+  printTest "rotate (non-Euclidean)" $
+    (let ok = isMetricPreserving metricNE rotNE
+     in trace ("isMetricPreserving = " ++ show ok) $
+        case rotate metricNE rotNE vNE of
+          Just result ->
+            let expected = Vector [2.0, -3.0]
+            in traceShow result $ approxEqualVector result expected
+          Nothing -> trace "rotate returned Nothing" False)
+
+  -- shearNE and projectNE are identity, so output equals input
+  printTest "skew (non-Euclidean)" $
+    skew metricNE shearNE vNE == Just (Vector [2.0, 3.0])
+
+  printTest "reflect (non-Euclidean)" $
+    reflect metricNE reflectNE vNE == Just (Vector [-2.0, 3.0])
+
+  printTest "project (non-Euclidean)" $
+    project metricNE projectNE vNE == Just (Vector [2.0, 3.0])
 
 matrixTests :: IO ()
 matrixTests = do

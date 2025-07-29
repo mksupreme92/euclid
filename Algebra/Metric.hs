@@ -7,6 +7,7 @@ module Algebra.Metric
   , innerProduct
   , distance
   , isEuclidean
+  , isMetricPreserving
   ) where
 
 import Algebra.Vector
@@ -35,3 +36,14 @@ isEuclidean :: (Eq a, Num a) => Metric a -> Bool
 isEuclidean (Metric m) =
   let n = length m
   in m == identityMatrix n
+  
+  
+isMetricPreserving :: (Eq a, Num a) => Metric a -> Matrix a -> Bool
+isMetricPreserving (Metric g) m =
+  let mt = transpose m
+  in case do
+       a <- matrixMultiply mt g
+       b <- matrixMultiply a m
+       return b of
+       Just result -> result == g
+       Nothing -> False

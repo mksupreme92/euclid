@@ -2,6 +2,14 @@
 -- Copyright (c) 2025 Joseph Shaw Petersen 🦅
 -- Licensed under the BSD 3-Clause License. See LICENSE for details.
 
+
+-- NOTE (2025-07-28): Metric-specific transformation routing is partially implemented.
+--   Functions like `rotate`, `skew`, `reflect`, and `project` now validate that the
+--   transformation matrix preserves the metric using `isMetricPreserving`.
+--   However, some geometric types still return `Nothing` when metric ≠ Euclidean
+--   (e.g. `rotateAbout` for Vertex/Edge). These will need future handling.
+
+
 module Algebra.Transform (
     Translatable(..),
     Scalable(..),
@@ -47,7 +55,7 @@ instance (Num a, Eq a) => Translatable Vector a where
   translate metric (Vector t) (Vector v)
     | isEuclidean metric && length t == length v = Just $ Vector (zipWith (+) t v)
     | isEuclidean metric = Nothing
-    | otherwise = Nothing
+    | otherwise = Just $ Vector (zipWith (+) t v) -- Metric-aware translation stub (linear shift still valid in flat space)
 
 instance (Num a, Eq a) => Translatable Vertex a where
   translate metric offset (Vertex v) = fmap Vertex (translate metric offset v)
@@ -61,25 +69,31 @@ instance (Num a, Eq a) => Scalable Vector a where
   scale metric (Vector s) (Vector v)
     | isEuclidean metric && length s == length v = Just $ Vector (zipWith (*) s v)
     | isEuclidean metric = Nothing
-    | otherwise = Nothing
+    | otherwise = Just $ Vector (zipWith (*) s v) -- Metric-aware scaling stub (componentwise for now)
 
 
 instance (Num a, Eq a) => Rotatable Vector a where
   rotate metric m (Vector v)
-    | isEuclidean metric = Vector <$> matrixVectorProduct m v
+    | isMetricPreserving metric m = Vector <$> matrixVectorProduct m v
     | otherwise = Nothing
 
 
-instance Num a => Skewable Vector a where
-  skew _ m (Vector v) = Vector <$> matrixVectorProduct m v
+instance (Num a, Eq a) => Skewable Vector a where
+  skew metric m (Vector v)
+    | isMetricPreserving metric m = Vector <$> matrixVectorProduct m v
+    | otherwise = Nothing
 
 
-instance Num a => Reflectable Vector a where
-  reflect _ m (Vector v) = Vector <$> matrixVectorProduct m v
+instance (Num a, Eq a) => Reflectable Vector a where
+  reflect metric m (Vector v)
+    | isMetricPreserving metric m = Vector <$> matrixVectorProduct m v
+    | otherwise = Nothing
 
 
-instance Num a => Projectable Vector a where
-  project _ m (Vector v) = Vector <$> matrixVectorProduct m v
+instance (Num a, Eq a) => Projectable Vector a where
+  project metric m (Vector v)
+    | isMetricPreserving metric m = Vector <$> matrixVectorProduct m v
+    | otherwise = Nothing
 
 
 rotationMatrix :: [[a]] -> Matrix a

@@ -15,8 +15,8 @@ Euclid is for builders, researchers, and rebels—those who want to *design real
 
 ---
 
-## ✅ Status: Version 2 Refactor in Progress
-
+📦 **Current Phase**: V2 Refactor in Progress  
+🛠️ Rebuilding core infrastructure for better composability, transformation logic, and Rust interop.
 ---
 
 ## 🏗️ TODO
