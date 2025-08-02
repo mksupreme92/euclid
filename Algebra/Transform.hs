@@ -67,9 +67,14 @@ instance (Num a, Eq a) => Translatable Edge a where
 
 instance (Num a, Eq a) => Scalable Vector a where
   scale metric (Vector s) (Vector v)
-    | isEuclidean metric && length s == length v = Just $ Vector (zipWith (*) s v)
+    | isEuclidean metric && length s == length v =
+        Just $ Vector (zipWith (*) s v)
     | isEuclidean metric = Nothing
-    | otherwise = Just $ Vector (zipWith (*) s v) -- Metric-aware scaling stub (componentwise for now)
+    | otherwise =
+        let scaleMatrix = diag s
+        in if isMetricPreserving metric scaleMatrix
+              then Vector <$> matrixVectorProduct scaleMatrix v
+              else Nothing
 
 
 instance (Num a, Eq a) => Rotatable Vector a where

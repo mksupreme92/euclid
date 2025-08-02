@@ -196,6 +196,11 @@ vectorTests = do
   printTest "Skew" $
     skew metric shearMatrix vSkew == Just expectedSkewed
 
+  -- Skew should fail with non-metric-preserving matrix
+  let invalidShearMatrix = [[2.0, 0.0], [0.0, 1.0]]  -- scales x-dimension
+  printTest "Skew (non-preserving should fail)" $
+    skew metric invalidShearMatrix vSkew == Nothing
+
   -- Reflect test (reflect over Y axis: x -> -x)
   let reflectMatrix = [[1, 0], [0, -1]]
       vReflect = Vector [2, 3]
@@ -209,6 +214,11 @@ vectorTests = do
       expectedProjected = Vector [2.0, 3.0]
   printTest "Project" $
     project metric projectMatrix vProject == Just expectedProjected
+
+  -- Project should fail with non-metric-preserving matrix
+  let invalidProjectMatrix = [[2.0, 0.0], [0.0, 2.0]]  -- scales both axes
+  printTest "Project (non-preserving should fail)" $
+    project metric invalidProjectMatrix vProject == Nothing
 
   -- Non-Euclidean metric transformation tests
   let metricNE = Metric [[1, 0], [0, 2]]
@@ -228,8 +238,13 @@ vectorTests = do
   printTest "translate (non-Euclidean)" $
     translate metricNE offsetNE vNE == Just (Vector [3.0, 4.0])
 
-  printTest "scale (non-Euclidean)" $
-    scale metricNE scaleVecNE vNE == Just (Vector [4.0, -3.0])
+  -- Scaling with non-Euclidean metric that does NOT preserve the metric should fail
+  printTest "scale (non-Euclidean, non-preserving)" $
+      scale metricNE scaleVecNE vNE == Nothing
+  -- Scaling with non-Euclidean metric that does preserve the metric should also fail
+  let uniformScaleVecNE = Vector [2.0, 2.0]  -- uniform scaling preserves metric
+  printTest "scale (non-Euclidean, preserving uniform)" $
+      scale metricNE uniformScaleVecNE vNE == Nothing
 
   printTest "rotate (non-Euclidean)" $
     (let ok = isMetricPreserving metricNE rotNE

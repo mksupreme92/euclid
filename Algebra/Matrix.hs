@@ -10,6 +10,7 @@ module Algebra.Matrix
   , transpose
   , matrixMultiply
   , matrixDimensions
+  , diag
   ) where
 
 type Matrix a = [[a]]
@@ -42,3 +43,9 @@ matrixMultiply a b =
 
 matrixDimensions :: Matrix a -> (Int, Int)
 matrixDimensions m = (length m, if null m then 0 else length (head m))
+
+diag :: Num a => [a] -> Matrix a
+diag xs =
+  [ [ if i == j then x else 0
+    | (j, _) <- zip [0..] xs ]
+  | (i, x) <- zip [0..] xs ]

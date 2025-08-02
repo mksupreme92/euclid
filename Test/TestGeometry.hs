@@ -84,6 +84,11 @@ vertexTests = do
   printTest "rotateAbout 5D (XY-plane 90°)" $
     rotateAbout metric5D center5D rotXY_5D v5D == Just (vertexFromList [0.0, 1.0, 0.0, 0.0, 0.0])
 
+  -- Attempt to rotate vertex with non-metric-preserving matrix should fail
+  let badMatrix = [[2.0, 0.0], [0.0, 2.0]] :: Matrix Double
+  printTest "rotateAbout Vertex (non-preserving should fail)" $
+    rotateAbout euclideanMetric v1 badMatrix v1 == Nothing
+
 
 edgeTests :: IO ()
 edgeTests = do
@@ -136,6 +141,11 @@ edgeTests = do
       rotated == Segment
         (fromJust $ rotateAbout metric2D center2D rot90_2D v2D)
         (fromJust $ rotateAbout metric2D center2D rot90_2D center2D)
+
+  -- Attempt to rotate Edge with non-metric-preserving matrix should fail
+  printTest "rotateAbout Edge (non-preserving should fail)" $
+    let badMatrixEdge = [[2.0, 0.0], [0.0, 2.0]] :: Matrix Double
+    in rotateAbout euclideanMetric center2D badMatrixEdge (InfiniteLine p1 dir) == Nothing
 
   -- Test rotateAbout for InfiniteLine: apply 90 degree rotation about origin
   printTest "rotateAbout Edge (InfiniteLine 90°)" $
