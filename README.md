@@ -31,28 +31,92 @@ Euclid is for builders, researchers, and rebels—those who want to *design real
 - [x] `Algebra/Matrix.hs` — Matrix operations
 - [ ] `Algebra/Metric.hs`
     - [x] Core infrastrucure (inner products, etc.)
-    - [ ] Measurement operations for vectors and all geometry primitives
+    - [ ] Measurement operations for vectors and all geometry primitives (Vertex, Edge, Plane, Face, Surface, Volume)
 
 ## 📐 Geometry Primitives
 
-- [x] `Geometry/Vertex.hs`
+- [ ] `Geometry/Vertex.hs`
+    - [x] Defined typeclass and constructor function
+    - [ ] Defined instances in Transform.hs:
+        - [x] Translateable
+        - [x] RotatableAboutVertex
+        - [ ] ReflectableAboutPlane
+        - [ ] ProjectAbleOntoPlane
+    - [ ] Defined instances in Metric.hs for measurement operations
+    
 - [x] `Geometry/Edge.hs`
-- [ ] `Geometry/Curve.hs` — Parametric curves, splines
-    - [ ] Linear Curves
-        - test for 2D–5D, negatives, irrationals, and extrapolation
-    - [ ] Parametric Nonlinear Curves
+    - [x] Defined typeclass and constructor function
+        - infinite lines, rays, and segments
+    - [ ] Defined instances in Transform.hs:
+        - [x] Translateable
+        - [ ] Scaleable (for Segment)
+        - [x] RotatableAboutVertex
+        - [ ] ReflectableAboutPlane
+        - [ ] ProjectAbleOntoPlane
+    - [ ] Defined instances in Metric.hs for measurement operations
+    
+- [ ] `Geometry/Curve.hs`
+    - [ ] Defined typeclass and constructor functions
+        - [ ] Linear Curves
+            - test for 2D–5D, negatives, irrationals, and extrapolation
+        - [ ] Parametric Nonlinear Curves
+    - [ ] Defined instances in Transform.hs:
+        - [ ] Translateable
+        - [ ] Scaleable 
+        - [ ] RotatableAboutVertex
+        - [ ] ReflectableAboutPlane
+        - [ ] ProjectAbleOntoPlane
+    - [ ] Defined instances in Metric.hs for measurement operations
+    
 - [ ] `Geometry/Plane.hs`
-- [ ] `Geometry/Face.hs` — Polygon face with convexity, winding, etc.
-- [ ] `Geometry/Surface.hs` — 
-    - [ ] Parametric surface
+    - [ ] Defined typeclass and constructor functions
+    - [ ] Defined instances in Transform.hs:
+        - [ ] Translateable
+        - [ ] Scaleable 
+        - [ ] RotatableAboutVertex
+        - [ ] ReflectableAboutPlane
+        - [ ] ProjectAbleOntoPlane
+    - [ ] Defined instances in Metric.hs for measurement operations
+
+- [ ] `Geometry/Face.hs` — Polygon face with 
+    - [ ] Defined typeclass and constructor function
+    - [ ] Validate convexity, winding, etc. upon construction
+    - [ ] Defined instances in Transform.hs:
+        - [ ] Translateable
+        - [ ] Scaleable
+        - [ ] Skewable
+        - [ ] RotatableAboutVertex
+        - [ ] ReflectableAboutPlane
+        - [ ] ProjectAbleOntoPlane
+    - [ ] Defined instances in Metric.hs for measurement operations
+
+- [ ] `Geometry/Surface.hs` 
+    - [ ] Defined typeclass and constructor function for parametric surfaces
+    - [ ] Defined instances in Transform.hs:
+        - [ ] Translateable
+        - [ ] Scaleable
+        - [ ] RotatableAboutVertex
+        - [ ] ReflectableAboutPlane
+        - [ ] ProjectAbleOntoPlane
+    - [ ] Defined instances in Metric.hs for measurement operations
     - [ ] Meshing & area integration in Rust via FFI
+    
 - [ ] `Geometry/Volume.hs`
     - [ ] Parametric volume logic (ℝ³ → ℝⁿ)
+    - [ ] Defined instances in Transform.hs:
+        - [ ] Translateable
+        - [ ] Scaleable
+        - [ ] RotatableAboutVertex
+        - [ ] ReflectableAboutPlane
+        - [ ] ProjectAbleOntoPlane
+    - [ ] Defined instances in Metric.hs for measurement operations
     - [ ] Tetrahedral meshing & volume integration in Rust via FFI
 
 ## 🧮 Algebraic Operations
 
-- [ ] `Algebra/Transform.hs` — Rotations, translations, projections, scaling, etc. (note: metric based operations are WIP)
+- [ ] `Algebra/Transform.hs` — Rotations, translations, projections, scaling, etc.
+    - [ ] ReflectableAboutPlane class for Geometry instances with defined locations in metric space (Vertex, Edge, Plane, Face, Surface, Volume)
+    - [ ] ProjectAbleOntoPlane class for Geometry instances defined locations in metric space (Vertex, Edge, Plane, Face, Surface, Volume)
 - [ ] `Algebra/Boolean.hs` — Boolean operations (union, subtract, intersect)
 - [ ] `Algebra/Collision.hs` — Collision and intersection logic
 
@@ -66,7 +130,7 @@ Euclid is for builders, researchers, and rebels—those who want to *design real
 
 ## ✒️ Elementa Programing Language
 
-- [ ] `Elementa.hs` — Elementa DSL language layer
+- [ ] `Elementa.hs` — Elementa language layer for input to kernel
     - [ ] Grammar
     - [ ] Syntax
 - [ ] `Parser.hs` — Parser/interpreter for Elementa DSL
