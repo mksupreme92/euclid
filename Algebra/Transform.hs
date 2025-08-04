@@ -18,6 +18,8 @@ module Algebra.Transform (
     Skewable(..),
     Reflectable(..),
     Projectable(..),
+    reflectionMatrix,
+    projectionMatrix,
     rotationMatrix
 ) where
 
@@ -134,30 +136,51 @@ instance (Num a, Eq a) => Skewable Vector a where
     
 ---------------------------------------------------------------------
 
--- | Instances that support reflection via a matrix -----------------
+-- Householder reflection matrix
+reflectionMatrix :: (Floating a, Eq a) => Vector a -> Matrix a
+reflectionMatrix (Vector v) =
+  let numerator = outerProduct v v
+      denom = sum (zipWith (*) v v)
+      identity = identityMatrix (length v)
+  in matrixSubtract identity (scaleMatrix (2 / denom) numerator)
+
+
 class Num a => Reflectable t a where
   reflect :: Metric a -> Matrix a -> t a -> Maybe (t a)
 
-instance (Num a, Eq a) => Reflectable Vector a where
-  reflect metric m (Vector v)
-    | isMetricPreserving metric m = Vector <$> matrixVectorProduct m v
+instance (Floating a, Eq a) => Reflectable Vector a where
+  reflect metric _ vec@(Vector v)
+    | isEuclidean metric =
+        let m = reflectionMatrix vec
+        in Vector <$> matrixVectorProduct m v
     | otherwise = Nothing
 
 -- To do:
+    -- define logic for reflections when metric is non-euclidean
     -- ReflectableAboutPlane class for Geometry instances with defined locations in metric space (Vertex, Edge, Plane, Face, Surface, Volume)
 
 ---------------------------------------------------------------------
 
--- | Instances that support projection via a matrix -----------------
+-- Orthogonal projection matrix
+projectionMatrix :: (Floating a, Eq a) => Vector a -> Matrix a
+projectionMatrix (Vector n) =
+  let numerator = outerProduct n n
+      denom = sum (zipWith (*) n n)
+      identity = identityMatrix (length n)
+  in matrixSubtract identity (scaleMatrix (1 / denom) numerator)
+
 class Num a => Projectable t a where
   project :: Metric a -> Matrix a -> t a -> Maybe (t a)
 
-instance (Num a, Eq a) => Projectable Vector a where
-  project metric m (Vector v)
-    | isMetricPreserving metric m = Vector <$> matrixVectorProduct m v
+instance (Floating a, Eq a) => Projectable Vector a where
+  project metric _ vec@(Vector v)
+    | isEuclidean metric =
+        let m = projectionMatrix vec
+        in Vector <$> matrixVectorProduct m v
     | otherwise = Nothing
 
 -- To do:
+    -- define logic for projections when metric is non-euclidean
     -- ProjectAbleOntoPlane class for Geometry instances defined locations in metric space (Vertex, Edge, Plane, Face, Surface, Volume)
 
 ---------------------------------------------------------------------
@@ -165,3 +188,6 @@ instance (Num a, Eq a) => Projectable Vector a where
 
 rotationMatrix :: [[a]] -> Matrix a
 rotationMatrix = matrixFromList
+
+-- Needed imports/utilities:
+-- outerProduct, dotProduct, identityMatrix, scaleMatrix, subMatrix, matrixVectorProduct

@@ -14,8 +14,14 @@ import Algebra.Transform
   , Skewable(..)
   , Reflectable(..)
   , Projectable(..)
-  , rotationMatrix )
-  
+  , rotationMatrix
+  , reflectionMatrix
+  , projectionMatrix
+  , reflect
+  , project
+  )
+
+import Data.Maybe (fromJust)
 import Test.TestUtilities
 
 import Control.Monad (when)
@@ -264,6 +270,28 @@ vectorTests = do
 
   printTest "project (non-Euclidean)" $
     project metricNE projectNE vNE == Just (Vector [2.0, 3.0])
+
+  -- Reflection and Projection tests for 2D and 3D vectors
+  let metric2D = Metric (identityMatrix 2)
+      metric3D = Metric (identityMatrix 3)
+
+      v2D = vectorFromList [1.0, 2.0]
+      normal2D = vectorFromList [0.0, 1.0]
+
+      v3D = vectorFromList [1.0, 2.0, 3.0]
+      normal3D = vectorFromList [0.0, 0.0, 1.0]
+
+  printTest "Reflect Vector 2D about x-axis" $
+    fromJust (reflect metric2D (reflectionMatrix normal2D) v2D) == vectorFromList [1.0, -2.0]
+
+  printTest "Project Vector 2D onto x-axis" $
+    fromJust (project metric2D (projectionMatrix normal2D) v2D) == vectorFromList [1.0, 0.0]
+
+  printTest "Reflect Vector 3D about xy-plane" $
+    fromJust (reflect metric3D (reflectionMatrix normal3D) v3D) == vectorFromList [1.0, 2.0, -3.0]
+
+  printTest "Project Vector 3D onto xy-plane" $
+    fromJust (project metric3D (projectionMatrix normal3D) v3D) == vectorFromList [1.0, 2.0, 0.0]
 
 matrixTests :: IO ()
 matrixTests = do

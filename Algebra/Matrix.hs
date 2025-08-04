@@ -11,6 +11,9 @@ module Algebra.Matrix
   , matrixMultiply
   , matrixDimensions
   , diag
+  , outerProduct
+  , scaleMatrix
+  , matrixSubtract
   ) where
 
 type Matrix a = [[a]]
@@ -49,3 +52,16 @@ diag xs =
   [ [ if i == j then x else 0
     | (j, _) <- zip [0..] xs ]
   | (i, x) <- zip [0..] xs ]
+
+
+-- | Outer product of two vectors u and v: produces a matrix u * v^T
+outerProduct :: Num a => [a] -> [a] -> Matrix a
+outerProduct u v = [ [ x * y | y <- v ] | x <- u ]
+
+-- | Scale a matrix by a scalar value
+scaleMatrix :: Num a => a -> Matrix a -> Matrix a
+scaleMatrix s = map (map (s *))
+
+-- | Element-wise subtraction of two matrices
+matrixSubtract :: Num a => Matrix a -> Matrix a -> Matrix a
+matrixSubtract a b = zipWith (zipWith (-)) a b
