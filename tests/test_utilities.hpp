@@ -3,6 +3,9 @@
 #include <string>
 #include <cmath>
 #include <Eigen/Dense>
+#include "geometry/point.hpp"
+
+using namespace euclid::geometry;
 
 namespace euclid::tests {
 
@@ -29,6 +32,14 @@ inline void benchmarkTest(const std::string& name, double measuredTime, double b
 template<typename T>
 inline bool approxEqual(T a, T b, T tol = static_cast<T>(1e-9)) {
     return std::abs(a - b) <= tol;
+}
+
+// Approximate equality for Point
+template <typename Scalar, int Dim>
+inline bool approxEqual(const Point<Scalar, Dim>& a,
+                        const Point<Scalar, Dim>& b,
+                        Scalar tol = static_cast<Scalar>(1e-6)) {
+    return (a.coords - b.coords).norm() <= tol;
 }
 
 // Check if two Eigen vectors are approximately equal within a tolerance
