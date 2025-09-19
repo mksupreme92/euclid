@@ -39,3 +39,8 @@
 
 # debug information files
 *.dwo
+
+# Ignore Eigen dependency
+dependencies/eigen-3.4.0/
+
+*.DS_store
