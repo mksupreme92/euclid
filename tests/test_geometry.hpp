@@ -3,16 +3,13 @@
 #include <iostream>
 #include "geometry/point.hpp"
 #include "geometry/line.hpp"
+#include "test_curve.hpp"
 #include "test_utilities.hpp"
 #include "config.hpp"
 
 using namespace euclid::geometry;
 using namespace euclid::tests;
 
-template <typename T, int N>
-inline bool approxEqual(const Point<T, N>& a, const Point<T, N>& b, T tol = T(1e-9)) {
-    return a.coords.isApprox(b.coords, tol);
-}
 
 inline void testPoint() {
     std::cout << "\n📍 Testing Point Primitive\n\n";
@@ -439,4 +436,5 @@ inline void testGeometry() {
     testPointRotationAboutPivotCompact();
     testLine();
     testLineMeasureAngle();
+    testCurve();
 }

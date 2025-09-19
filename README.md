@@ -14,9 +14,9 @@
 
 - [x] `Point`
 - [ ] `Line`
-    - need to revisit logic for intersection tests; otherwise complete
-- [ ] `Curve`
-    - [ ] Parametric Nonlinear Curves (test for 2D–5D, negatives, irrationals, and extrapolation)
+    - need to revisit logic for intersection tests
+    - need to implement line segments
+- [x] `Curve` - Parametric Linear & Nonlinear Curves
 - [ ] `Plane`
 - [ ] `Face`
     - [ ] Validate convexity, winding, etc. upon construction
