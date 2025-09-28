@@ -6,21 +6,17 @@
 
 ## ⚙️ Core Linear Algebra Infrastructure
 
-- [ ] `Metric`
-    - [x] Core infrastrucure (inner products, etc.)
-    - [ ] Measurement operations for all geometry primitives (Point, Line, Plane, Face, Surface, Volume)
+- [x] `Metric`
 
 ## 📐 Geometry Primitives
 
 - [x] `Point`
 - [ ] `Line`
-    - need to revisit logic for intersection tests
-    - need to implement line segments
+    - need to revisit logic for intersection tests & implement line segments, otherwise complete  
 - [x] `Curve` - Parametric Linear & Nonlinear Curves
-- [ ] `Plane`
-- [ ] `Face`
-    - [ ] Validate convexity, winding, etc. upon construction
-- [ ] `Surface` 
+- [x] `Plane`
+- [x] `Face`
+- [x] `Surface` 
 - [ ] `Volume` ((ℝ³ → ℝⁿ))
 
 ## 🧮 Operations on Geometry Primitives
@@ -28,13 +24,6 @@
 - [ ] `Boolean Operations` — Boolean operations (union, subtract, intersect)
 - [ ] `Collisions` — Collision and intersection logic
 
-
-## 🔢 Numerical Methods
-
-- [ ] `Sampling` - sampling/surface and volume division for meshing
-- [ ] `Integration`
-- [ ] `Differentiation`
-
-## ✒️ Elementa Programing Language API via LLVM
+## ✒️ Elementa Programing Language API
 
 - [ ] `Elementa` —  layer for input to kernel 
