@@ -92,6 +92,11 @@ struct Orthogonal : Linear<T,N> {
 
     // determinant check for orientation
     T det() const { return this->A.determinant(); }
+
+    template <typename PointT>
+    PointT apply(const PointT& p) const {
+        return PointT(this->A * p.coords);
+    }
 };
 
 // ---------------------------
@@ -102,6 +107,11 @@ struct SpecialOrthogonal : Orthogonal<T,N> {
     SpecialOrthogonal(const Eigen::Matrix<T,N,N>& mat) : Orthogonal<T,N>(mat) {
         if (std::abs(mat.determinant() - T(1)) > 1e-6)
             throw std::runtime_error("Not a valid SO(N) matrix");
+    }
+
+    template <typename PointT>
+    PointT apply(const PointT& p) const {
+        return PointT(this->A * p.coords);
     }
 };
 
