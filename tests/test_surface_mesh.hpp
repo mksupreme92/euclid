@@ -8,8 +8,6 @@ namespace euclid::geometry {
 inline void testSurfaceMeshing() {
     std::cout << "\n∯ Testing Surface Meshing\n";
     
-    int oldDim = Euclid::getSpaceDimension();
-    Euclid::setSpaceDimension(3);
     using Point3 = euclid::geometry::Point<float,3>;
     using Surface3 = euclid::geometry::Surface<float,3>;
     using SurfaceMesh3 = euclid::geometry::SurfaceMesh<float,3>;
@@ -21,8 +19,8 @@ inline void testSurfaceMeshing() {
     Surface3 squareSurface(squareFunc, {{0.0f,0.0f},{1.0f,1.0f}});
     SurfaceMesh3 squareMesh = euclid::geometry::generateSurfaceMesh(squareSurface, 2, 2);
     
-    printTest("SquareMesh: correct number of vertices", squareMesh.vertices.size() == 4);
-    printTest("SquareMesh: correct number of faces", squareMesh.faces.size() == 2);
+    printTest("SquareMesh: correct number of vertices", squareMesh.vertices.size() == static_cast<size_t>(4));
+    printTest("SquareMesh: correct number of faces", squareMesh.faces.size() == static_cast<size_t>(2));
     printTest("SquareMesh: valid faces", squareMesh.validate());
     printTest("SquareMesh: area == 1.0", std::abs(squareMesh.area() - 1.0f) < 1e-6f);
 
@@ -48,8 +46,8 @@ inline void testSurfaceMeshing() {
     Surface3 paraSurface(paraFunc, {{0.0f,0.0f},{1.0f,1.0f}});
     SurfaceMesh3 paraMesh = euclid::geometry::generateSurfaceMesh(paraSurface, 5, 5);
     
-    printTest("ParaboloidMesh: correct number of vertices", paraMesh.vertices.size() == 25);
-    printTest("ParaboloidMesh: correct number of faces", paraMesh.faces.size() == 32);
+    printTest("ParaboloidMesh: correct number of vertices", paraMesh.vertices.size() == static_cast<size_t>(25));
+    printTest("ParaboloidMesh: correct number of faces", paraMesh.faces.size() == static_cast<size_t>(32));
     printTest("ParaboloidMesh: valid faces", paraMesh.validate());
     printTest("ParaboloidMesh: area > 0", paraMesh.area() > 0.0f);
 
@@ -67,10 +65,8 @@ inline void testSurfaceMeshing() {
         std::cerr << "❌ Failed to open file for writing: " << paraPath << "\n";
     }
 
-    Euclid::setSpaceDimension(oldDim);
 
     // --- Sweep surface along a trefoil curve ---
-    Euclid::setSpaceDimension(3);
     using Curve3 = euclid::geometry::Curve<float,3>;
     // Trefoil knot parametric equations (scaled)
     auto trefoilFunc = [](float t) -> Point3 {
@@ -86,12 +82,12 @@ inline void testSurfaceMeshing() {
     int trefoilCrossSectionSteps = 12;
     float trefoilRadius = 0.07f;
 
-    // Cross-section function: circle in YZ plane relative to spine (frame-aware)
-    auto trefoilCrossSection = [trefoilRadius](float v, const Point3& tangent, const Point3& normal, const Point3& binormal) -> Point3 {
+    // Cross-section function: circle in cross-section plane, returns 2D coordinates
+    auto trefoilCrossSection = [trefoilRadius](float v) -> Point<float,2> {
         float angle = v * 2.0f * 3.14159265f;
         float cx = trefoilRadius * std::cos(angle);
         float cy = trefoilRadius * std::sin(angle);
-        return Point3{cx, cy, 0.0f}; // coordinates in cross-section plane
+        return Point<float,2>{cx, cy};
     };
 
     // Sweep along trefoil
@@ -105,9 +101,9 @@ inline void testSurfaceMeshing() {
     );
 
     printTest("TrefoilSweepMesh: correct number of vertices",
-        trefoilSweepMesh.vertices.size() == trefoilSteps * trefoilCrossSectionSteps);
+        trefoilSweepMesh.vertices.size() == static_cast<size_t>(trefoilSteps * trefoilCrossSectionSteps));
     printTest("TrefoilSweepMesh: correct number of faces",
-        trefoilSweepMesh.faces.size() == (trefoilSteps-1)*(trefoilCrossSectionSteps-1)*2);
+        trefoilSweepMesh.faces.size() == static_cast<size_t>((trefoilSteps-1)*(trefoilCrossSectionSteps-1)*2));
     printTest("TrefoilSweepMesh: valid faces", trefoilSweepMesh.validate());
     printTest("TrefoilSweepMesh: area > 0", trefoilSweepMesh.area() > 0.0f);
 
@@ -124,10 +120,8 @@ inline void testSurfaceMeshing() {
     } else {
         std::cerr << "❌ Failed to open file for writing: " << trefoilSweepPath << "\n";
     }
-    Euclid::setSpaceDimension(oldDim);
 
     // --- Sweep surface along a curve ---
-    Euclid::setSpaceDimension(3);
     using Curve3 = euclid::geometry::Curve<float,3>;
 
     Point3 p0{0.0f, 0.0f, 0.0f};
@@ -137,7 +131,7 @@ inline void testSurfaceMeshing() {
     int crossSectionSteps = 10;
     float radius = 0.1f;
 
-    auto sweepFunc = [linearCurve, crossSectionSteps, radius](float u, float v) -> Point3 {
+    auto sweepFunc = [linearCurve, radius](float u, float v) -> Point3 {
         Point3 center = linearCurve.evaluate(u);
         float angle = v * 2.0f * 3.14159265f;
         float y = radius * std::cos(angle);
@@ -148,8 +142,8 @@ inline void testSurfaceMeshing() {
     Surface3 sweepSurface(sweepFunc, {{0.0f,0.0f},{1.0f,1.0f}});
     SurfaceMesh3 sweepMesh = euclid::geometry::generateSurfaceMesh(sweepSurface, 20, crossSectionSteps);
 
-    printTest("SweepMesh: correct number of vertices", sweepMesh.vertices.size() == 20*crossSectionSteps);
-    printTest("SweepMesh: correct number of faces", sweepMesh.faces.size() == (20-1)*(crossSectionSteps-1)*2);
+    printTest("SweepMesh: correct number of vertices", sweepMesh.vertices.size() == static_cast<size_t>(20*crossSectionSteps));
+    printTest("SweepMesh: correct number of faces", sweepMesh.faces.size() == static_cast<size_t>((20-1)*(crossSectionSteps-1)*2));
     printTest("SweepMesh: valid faces", sweepMesh.validate());
     printTest("SweepMesh: area > 0", sweepMesh.area() > 0.0f);
 
@@ -167,18 +161,16 @@ inline void testSurfaceMeshing() {
         std::cerr << "❌ Failed to open file for writing: " << sweepPath << "\n";
     }
 
-    Euclid::setSpaceDimension(oldDim);
 
     // --- Saddle surface ---
-    Euclid::setSpaceDimension(3);
     auto saddleFunc = [](float u, float v) -> Point3 {
         return Point3{u, v, u*u - v*v};
     };
     Surface3 saddleSurface(saddleFunc, {{-1.0f,-1.0f},{1.0f,1.0f}});
     SurfaceMesh3 saddleMesh = euclid::geometry::generateSurfaceMesh(saddleSurface, 20, 20);
 
-    printTest("SaddleMesh: correct number of vertices", saddleMesh.vertices.size() == 400);
-    printTest("SaddleMesh: correct number of faces", saddleMesh.faces.size() == 722); // 19x19 quads * 2 triangles
+    printTest("SaddleMesh: correct number of vertices", saddleMesh.vertices.size() == static_cast<size_t>(400));
+    printTest("SaddleMesh: correct number of faces", saddleMesh.faces.size() == static_cast<size_t>(722)); // 19x19 quads * 2 triangles
     printTest("SaddleMesh: valid faces", saddleMesh.validate());
     printTest("SaddleMesh: area > 0", saddleMesh.area() > 0.0f);
 
@@ -196,7 +188,7 @@ inline void testSurfaceMeshing() {
         std::cerr << "❌ Failed to open file for writing: " << saddlePath << "\n";
     }
 
-    Euclid::setSpaceDimension(oldDim);
+
 }
 
 }

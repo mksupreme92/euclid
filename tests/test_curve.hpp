@@ -5,7 +5,6 @@
 #include "geometry/line.hpp"
 #include "geometry/curve.hpp"
 #include "test_utilities.hpp"
-#include "config.hpp"
 
 
 using namespace euclid::geometry;
@@ -14,10 +13,8 @@ using namespace euclid::tests;
 inline void testCurve() {
     std::cout << "\n∿ Testing Curve Primitive\n";
 
-    int oldDim = Euclid::getSpaceDimension();
 
     // --- 2D Linear Curve ---
-    Euclid::setSpaceDimension(2);
     using Point2 = Point<float,2>;
     using Curve2 = Curve<float,2>;
 
@@ -34,7 +31,6 @@ inline void testCurve() {
     printTest("Linear 2D curve t=0.5", approxEqual(evalHalf,Point2{0.5f,0.5f},1e-6f));
 
     // --- 3D Linear Curve ---
-    Euclid::setSpaceDimension(3);
     using Point3 = Point<float,3>;
     using Curve3 = Curve<float,3>;
     Point3 p3_0{0.0f,0.0f,0.0f};
@@ -45,7 +41,6 @@ inline void testCurve() {
     printTest("Linear 3D curve t=0.5", approxEqual(eval3Half,Point3{0.5f,1.0f,1.5f},1e-6f));
 
     // --- Nonlinear Curve ---
-    Euclid::setSpaceDimension(2);
     auto nonlinearFunc = [](float t) -> Point2 { return Point2{t, t*t}; };
     Curve2 nonlinear(nonlinearFunc,0.0f,1.0f);
 
@@ -53,7 +48,6 @@ inline void testCurve() {
     printTest("Nonlinear 2D curve t=0.5", approxEqual(evalNonlin,Point2{0.5f,0.25f},1e-6f));
 
     // --- 3D Nonlinear Curve ---
-    Euclid::setSpaceDimension(3);
     auto nonlinear3D = [](float t) -> Point3 { return Point3{t, t*t, t*t*t}; };
     Curve3 nonlinearCurve3D(nonlinear3D, 0.0f, 1.0f);
     Point3 eval3D_0 = nonlinearCurve3D.evaluate(0.0f);
@@ -62,7 +56,6 @@ inline void testCurve() {
     printTest("Nonlinear 3D curve t=0.0", approxEqual(eval3D_0, Point3{0.0f, 0.0f, 0.0f}, 1e-6f));
     printTest("Nonlinear 3D curve t=0.5", approxEqual(eval3D_half, Point3{0.5f, 0.25f, 0.125f}, 1e-6f));
     printTest("Nonlinear 3D curve t=1.0", approxEqual(eval3D_1, Point3{1.0f, 1.0f, 1.0f}, 1e-6f));
-    Euclid::setSpaceDimension(2);
 
     // --- 2D Sinusoidal Curve: y = sin(2*pi*x), x = t in [0,1] ---
     auto sinusoidalFunc = [](float t) -> Point2 {
@@ -88,7 +81,6 @@ inline void testCurve() {
     // --- Multi-dimensional Nonlinear Curve Tests (2D–5D) ---
 
     // 2D Nonlinear Curve
-    Euclid::setSpaceDimension(2);
     auto func2D = [](float t) -> Point<float,2> { return Point<float,2>{-t, t * float(M_PI)}; };
     Curve<float,2> curve2(func2D, 0.0f, 1.0f);
     printTest("Nonlinear 2D t=0", approxEqual(curve2.evaluate(0.0f), Point<float,2>{0.0f,0.0f},1e-6f));
@@ -98,25 +90,21 @@ inline void testCurve() {
     printTest("Nonlinear 2D t=1.5", approxEqual(curve2.evaluate(1.5f), Point<float,2>{-1.5f, 1.5f*float(M_PI)},1e-6f));
 
     // 3D Nonlinear Curve
-    Euclid::setSpaceDimension(3);
     auto func3D = [](float t) -> Point<float,3> { return Point<float,3>{-t, t * float(M_PI), t*t}; };
     Curve<float,3> curve3(func3D, 0.0f, 1.0f);
     printTest("Nonlinear 3D t=0.5", approxEqual(curve3.evaluate(0.5f), Point<float,3>{-0.5f, 0.5f*float(M_PI), 0.25f},1e-6f));
     printTest("Nonlinear 3D t=1.5", approxEqual(curve3.evaluate(1.5f), Point<float,3>{-1.5f, 1.5f*float(M_PI), 2.25f},1e-6f));
 
     // 4D Nonlinear Curve
-    Euclid::setSpaceDimension(4);
     auto func4D = [](float t) -> Point<float,4> { return Point<float,4>{-t, t * float(M_PI), t*t, t*t*t}; };
     Curve<float,4> curve4(func4D, 0.0f, 1.0f);
     printTest("Nonlinear 4D t=0.5", approxEqual(curve4.evaluate(0.5f), Point<float,4>{-0.5f, 0.5f*float(M_PI), 0.25f, 0.125f},1e-6f));
     printTest("Nonlinear 4D t=-0.5", approxEqual(curve4.evaluate(-0.5f), Point<float,4>{0.5f, -0.5f*float(M_PI), 0.25f, -0.125f},1e-6f));
 
     // 5D Nonlinear Curve
-    Euclid::setSpaceDimension(5);
     auto func5D = [](float t) -> Point<float,5> { return Point<float,5>{-t, t * float(M_PI), t*t, t*t*t, std::sqrt(t+1.0f)}; };
     Curve<float,5> curve5(func5D, 0.0f, 1.0f);
     printTest("Nonlinear 5D t=0.5", approxEqual(curve5.evaluate(0.5f), Point<float,5>{-0.5f, 0.5f*float(M_PI), 0.25f, 0.125f, std::sqrt(1.5f)},1e-6f));
     printTest("Nonlinear 5D t=1.5", approxEqual(curve5.evaluate(1.5f), Point<float,5>{-1.5f, 1.5f*float(M_PI), 2.25f, 3.375f, std::sqrt(2.5f)},1e-6f));
 
-    Euclid::setSpaceDimension(oldDim);
 }

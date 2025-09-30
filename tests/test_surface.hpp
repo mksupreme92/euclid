@@ -3,6 +3,7 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include <fstream>
 #include "geometry/surface.hpp"
 #include "geometry/point.hpp"
 #include "test_utilities.hpp"
@@ -10,8 +11,6 @@
 namespace euclid::geometry {
 
 inline void testSurface() {
-    int oldDim = Euclid::getSpaceDimension();
-    Euclid::setSpaceDimension(3);
 
     std::cout << "\n∯ Testing Surface Primitive\n";
 
@@ -37,6 +36,9 @@ inline void testSurface() {
     float area = mesh.area();
     printTest("SurfaceMesh: area == 1.0", std::abs(area - 1.0f) < 1e-6f);
 
+    // --- Check closed topology for plane mesh ---
+    printTest("SurfaceMesh: hasClosedTopology() == false", !mesh.hasClosedTopology().isClosed);
+
     // --- 2. Define a curved surface (paraboloid z = u^2 + v^2) ---
     auto paraboloidFunc = [](float u, float v) -> Point3 {
         return Point3{u, v, u*u + v*v};
@@ -54,6 +56,26 @@ inline void testSurface() {
     // --- Optional: Check approximate area (should be > 0) ---
     float paraboloidArea = paraboloidMesh.area();
     printTest("ParaboloidMesh: area > 0", paraboloidArea > 0.0f);
+
+    // --- Check closed topology for paraboloid mesh ---
+    printTest("ParaboloidMesh: hasClosedTopology() == false", !paraboloidMesh.hasClosedTopology().isClosed);
+
+    // --- Create a small manually created open mesh (missing one face) ---
+    {
+        SurfaceMesh<float,3> openMesh;
+        // 4 vertices forming a square
+        openMesh.vertices = {
+            Point3{0.0f, 0.0f, 0.0f},
+            Point3{1.0f, 0.0f, 0.0f},
+            Point3{1.0f, 1.0f, 0.0f},
+            Point3{0.0f, 1.0f, 0.0f}
+        };
+        // Only one face (triangle), missing the other to form closed square
+        openMesh.faces = {
+            {0, 1, 2}
+        };
+        printTest("OpenMesh: hasClosedTopology() == false", !openMesh.hasClosedTopology().isClosed);
+    }
 
     // --- 3. Test affine transformation (scale + translate) ---
     {
@@ -195,7 +217,129 @@ inline void testSurface() {
         printTest("Scaled Paraboloid SurfaceMesh: vertices match expected", scaleParaOK);
     }
 
-    Euclid::setSpaceDimension(oldDim);
+    // --- New: Define and test a simple closed mesh (cube) ---
+    {
+        SurfaceMesh<float,3> cubeMesh;
+        // 8 vertices of a unit cube
+        cubeMesh.vertices = {
+            Point3{0.0f, 0.0f, 0.0f}, // 0
+            Point3{1.0f, 0.0f, 0.0f}, // 1
+            Point3{1.0f, 1.0f, 0.0f}, // 2
+            Point3{0.0f, 1.0f, 0.0f}, // 3
+            Point3{0.0f, 0.0f, 1.0f}, // 4
+            Point3{1.0f, 0.0f, 1.0f}, // 5
+            Point3{1.0f, 1.0f, 1.0f}, // 6
+            Point3{0.0f, 1.0f, 1.0f}  // 7
+        };
+        // 12 triangular faces (two per cube face)
+        cubeMesh.faces = {
+            {0,1,2}, {0,2,3}, // bottom
+            {4,5,6}, {4,6,7}, // top
+            {0,1,5}, {0,5,4}, // front
+            {1,2,6}, {1,6,5}, // right
+            {2,3,7}, {2,7,6}, // back
+            {3,0,4}, {3,4,7}  // left
+        };
+        printTest("CubeMesh: hasClosedTopology() == true", cubeMesh.hasClosedTopology().isClosed);
+
+        // Export cube mesh to OBJ file
+        std::string cubePath = "output/cubeMesh.obj";
+        auto cubeObjStr = cubeMesh.exportOBJ();
+        if (cubeObjStr) {
+            std::ofstream ofs(cubePath);
+            if (ofs) {
+                ofs << *cubeObjStr;
+                ofs.close();
+                std::cout << "Exported cube mesh to " << cubePath << std::endl;
+            } else {
+                std::cerr << "Failed to open file for writing: " << cubePath << std::endl;
+            }
+        } else {
+            std::cerr << "Failed to export cube mesh OBJ string." << std::endl;
+        }
+    }
+
+    // --- New: Define a closed parametric surface (torus) ---
+    {
+        auto torusFunc = [](float u, float v) -> Point3 {
+            // u,v in [0,1]
+            // Major radius R, minor radius r
+            float R = 1.0f;
+            float r = 0.3f;
+            float twoPi = 2.0f * static_cast<float>(M_PI);
+            float theta = u * twoPi; // angle around major circle
+            float phi = v * twoPi;   // angle around minor circle
+            float x = (R + r * std::cos(phi)) * std::cos(theta);
+            float y = (R + r * std::cos(phi)) * std::sin(theta);
+            float z = r * std::sin(phi);
+            return Point3{x, y, z};
+        };
+        Surface3 torusSurface{torusFunc, {{0.0f, 0.0f}, {1.0f, 1.0f}}};
+
+        // Generate mesh with 30x20 vertices for decent resolution, with periodic wrapping
+        auto torusMesh = generatePeriodicWrappedMesh(torusSurface, 30, 20, true, true);
+
+        // Validate closed topology for torus mesh
+        printTest("TorusMesh: hasClosedTopology() == true", torusMesh.hasClosedTopology().isClosed);
+
+        // Export torus mesh to OBJ file
+        std::string torusPath = "output/torusMesh.obj";
+        auto torusObjStr = torusMesh.exportOBJ();
+        if (torusObjStr) {
+            std::ofstream ofs(torusPath);
+            if (ofs) {
+                ofs << *torusObjStr;
+                ofs.close();
+                std::cout << "Exported torus mesh to " << torusPath << std::endl;
+            } else {
+                std::cerr << "Failed to open file for writing: " << torusPath << std::endl;
+            }
+        } else {
+            std::cerr << "Failed to export torus mesh OBJ string." << std::endl;
+        }
+    }
+
+    // --- New: Define and test a swept tube surface ---
+    {
+        using Curve3 = Curve<float,3>;
+
+        // Cross-section function: circle in XY plane
+        auto circleCrossSection = [](float v) -> Point<float,2> {
+            float angle = 2.0f * static_cast<float>(M_PI) * v;
+            return Point<float,2>{std::cos(angle), std::sin(angle)};
+        };
+
+        // Spine along Z-axis
+        Curve3 pathCurve([](float s) -> Point3 {
+            return Point3{0.0f, 0.0f, 2.0f * s};
+        }, 0.0f, 1.0f);
+
+        // Sweep the circle along the path
+        auto sweptSurface = Surface3::sweepSurface(pathCurve, circleCrossSection);
+
+        // Generate mesh with 30 segments along circle, 20 along path, closed topology true
+        auto sweptTubeMesh = generateSurfaceMesh(sweptSurface, 30, 20);
+
+        // Print closed topology status
+        printTest("SweptTubeMesh: hasClosedTopology() == false", !sweptTubeMesh.hasClosedTopology().isClosed);
+
+        // Export swept tube mesh to OBJ file
+        std::string sweptTubePath = "output/sweptTube.obj";
+        auto sweptTubeObjStr = sweptTubeMesh.exportOBJ();
+        if (sweptTubeObjStr) {
+            std::ofstream ofs(sweptTubePath);
+            if (ofs) {
+                ofs << *sweptTubeObjStr;
+                ofs.close();
+                std::cout << "Exported swept tube mesh to " << sweptTubePath << std::endl;
+            } else {
+                std::cerr << "Failed to open file for writing: " << sweptTubePath << std::endl;
+            }
+        } else {
+            std::cerr << "Failed to export swept tube mesh OBJ string." << std::endl;
+        }
+    }
+
 }
 
 inline void runSurfaceTests() {

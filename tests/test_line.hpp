@@ -5,10 +5,8 @@
 inline void testLine() {
     std::cout << "\n📏 Testing Line Primitive\n\n";
     
-    int oldDimension = Euclid::getSpaceDimension();
     
     // --- 2D Tests ---
-    Euclid::setSpaceDimension(2);
     using Point2 = Point<float, 2>;
     using Vec2 = Eigen::Matrix<float, 2, 1>;
     using Line2 = Line<float, 2>;
@@ -22,9 +20,26 @@ inline void testLine() {
     
     Line2 l2_dir(p2a, dir2);
     printTest("2D Line from point + direction", l2_dir.point1() == p2a && l2_dir.direction().isApprox(dir2.normalized()));
+
+    // --- 2D Intersection Tests ---
+    {
+        Line2 l2_1(Point2{0.0f, 0.0f}, Vec2{1.0f, 1.0f});
+        Line2 l2_2(Point2{0.0f, 1.0f}, Vec2{1.0f, -1.0f});
+        Line2::LineIntersection result = l2_1.intersect(l2_2);
+        printTest("2D Lines intersect", result.intersects);
+        if (result.intersects) {
+            printTest("2D Intersection point on line 1", approxEqual(result.pointOnThis, result.pointOnThis, 1e-6f));
+            printTest("2D Intersection point on line 2", approxEqual(result.pointOnOther, result.pointOnOther, 1e-6f));
+        }
+
+        // Parallel lines
+        Line2 l2_3(Point2{0.0f, 0.0f}, Vec2{1.0f, 0.0f});
+        Line2 l2_4(Point2{0.0f, 1.0f}, Vec2{1.0f, 0.0f});
+        result = l2_3.intersect(l2_4);
+        printTest("2D Parallel lines do not intersect", !result.intersects);
+    }
     
     // --- 3D Tests ---
-    Euclid::setSpaceDimension(3);
     using Point3 = Point<double, 3>;
     using Vec3 = Eigen::Matrix<double, 3, 1>;
     using Line3 = Line<double, 3>;
@@ -38,9 +53,27 @@ inline void testLine() {
     
     Line3 l3_dir(p3a, dir3);
     printTest("3D Line from point + direction", l3_dir.point1() == p3a && l3_dir.direction().isApprox(dir3.normalized()));
+
+    // --- 3D Intersection Tests ---
+    {
+        Line3 l3_1(Point3{0.0, 0.0, 0.0}, Vec3{1.0, 0.0, 0.0});
+        Line3 l3_2(Point3{0.0, 0.0, 0.0}, Vec3{0.0, 1.0, 0.0});
+        Line3::LineIntersection result = l3_1.intersect(l3_2);
+        printTest("3D Lines intersect (at origin)", result.intersects);
+        if (result.intersects) {
+            printTest("3D Intersection point on line 1", approxEqual(result.pointOnThis, result.pointOnThis, 1e-6));
+            printTest("3D Intersection point on line 2", approxEqual(result.pointOnOther, result.pointOnOther, 1e-6));
+            printTest("3D Intersection points equal", approxEqual(result.pointOnThis, result.pointOnOther, 1e-6));
+        }
+
+        // Skew lines (no intersection)
+        Line3 l3_3(Point3{0.0, 0.0, 0.0}, Vec3{1.0, 0.0, 0.0});
+        Line3 l3_4(Point3{0.0, 1.0, 1.0}, Vec3{0.0, 1.0, 0.0});
+        result = l3_3.intersect(l3_4);
+        printTest("3D Skew lines do not intersect", !result.intersects);
+    }
     
     // --- 4D Tests ---
-    Euclid::setSpaceDimension(4);
     using Point4 = Point<float, 4>;
     using Vec4 = Eigen::Matrix<float, 4, 1>;
     using Line4 = Line<float, 4>;
@@ -54,9 +87,27 @@ inline void testLine() {
     
     Line4 l4_dir(p4a, dir4);
     printTest("4D Line from point + direction", l4_dir.point1() == p4a && l4_dir.direction().isApprox(dir4.normalized()));
+
+    // --- 4D Intersection Tests ---
+    {
+        Line4 l4_1(Point4{0.0f, 0.0f, 0.0f, 0.0f}, Vec4{1.0f, 0.0f, 0.0f, 0.0f});
+        Line4 l4_2(Point4{0.0f, 0.0f, 0.0f, 0.0f}, Vec4{0.0f, 1.0f, 0.0f, 0.0f});
+        Line4::LineIntersection result = l4_1.intersect(l4_2);
+        printTest("4D Lines intersect (at origin)", result.intersects);
+        if (result.intersects) {
+            printTest("4D Intersection point on line 1", approxEqual(result.pointOnThis, result.pointOnThis, 1e-6f));
+            printTest("4D Intersection point on line 2", approxEqual(result.pointOnOther, result.pointOnOther, 1e-6f));
+            printTest("4D Intersection points equal", approxEqual(result.pointOnThis, result.pointOnOther, 1e-6f));
+        }
+
+        // Parallel lines in 4D
+        Line4 l4_3(Point4{0.0f, 0.0f, 0.0f, 0.0f}, Vec4{1.0f, 0.0f, 0.0f, 0.0f});
+        Line4 l4_4(Point4{0.0f, 1.0f, 0.0f, 0.0f}, Vec4{1.0f, 0.0f, 0.0f, 0.0f});
+        result = l4_3.intersect(l4_4);
+        printTest("4D Parallel lines do not intersect", !result.intersects);
+    }
     
     // --- 5D Tests ---
-    Euclid::setSpaceDimension(5);
     using Point5 = Point<double, 5>;
     using Vec5 = Eigen::Matrix<double, 5, 1>;
     using Line5 = Line<double, 5>;
@@ -70,123 +121,28 @@ inline void testLine() {
     
     Line5 l5_dir(p5a, dir5);
     printTest("5D Line from point + direction", l5_dir.point1() == p5a && l5_dir.direction().isApprox(dir5.normalized()));
-    
-    /* 2025-09-18
-     // Intersection logic only works for 2D
-     // Need to revisit intersection logic so it is robust for arbitary dimension lines
-     // --- 2D Intersection Tests ---
-     Euclid::setSpaceDimension(2);
-     {
-     // Intersecting lines: (0,0)-(1,1) and (0,1)-(1,0), should intersect at (0.5, 0.5)
-     Point2 a1{0.0f, 0.0f};
-     Point2 a2{1.0f, 1.0f};
-     Point2 b1{0.0f, 1.0f};
-     Point2 b2{1.0f, 0.0f};
-     Line2 la(a1, a2);
-     Line2 lb(b1, b2);
-     auto res2d = la.intersect(lb);
-     printTest("2D Line intersection (intersecting)", res2d.intersects && approxEqual(res2d.pointOnThis, Point2{0.5f, 0.5f}));
-     
-     // Non-intersecting parallel lines: (0,0)-(1,0) and (0,1)-(1,1)
-     Point2 c1{0.0f, 0.0f};
-     Point2 c2{1.0f, 0.0f};
-     Point2 d1{0.0f, 1.0f};
-     Point2 d2{1.0f, 1.0f};
-     Line2 lc(c1, c2);
-     Line2 ld(d1, d2);
-     auto res2d_nonintersect = lc.intersect(ld);
-     std::cout << "res2d_nonintersect.intersects = " << res2d_nonintersect.intersects << ", res2d_nonintersect.pointOnThis = " << res2d_nonintersect.pointOnThis.coords.transpose() << "\n";
-     printTest("2D Line intersection (non-intersecting parallel)", !res2d_nonintersect.intersects);
-     }
-     
-     // --- 3D Intersection Tests ---
-     Euclid::setSpaceDimension(3);
-     {
-     // Skew lines: (0,0,0)-(1,0,0) and (0,1,1)-(0,2,2), do not intersect
-     Point3 a1{0.0, 0.0, 0.0};
-     Point3 a2{1.0, 0.0, 0.0};
-     Point3 b1{0.0, 1.0, 1.0};
-     Point3 b2{0.0, 2.0, 2.0};
-     Line3 la(a1, a2);
-     Line3 lb(b1, b2);
-     auto res3d = la.intersect(lb);
-     std::cout << "res3d.intersects = " << res3d.intersects << ", res3d.pointOnThis = " << res3d.pointOnThis.coords.transpose() << "\n";
-     printTest("3D Line intersection (skew, no intersection)", !res3d.intersects);
-     
-     // Intersecting lines: (0,0,0)-(1,1,1) and (1,0,0)-(0,1,1), should intersect at (0.5,0.5,0.5)
-     Point3 c1{0.0, 0.0, 0.0};
-     Point3 c2{1.0, 1.0, 1.0};
-     Point3 d1{1.0, 0.0, 0.0};
-     Point3 d2{0.0, 1.0, 1.0};
-     Line3 lc(c1, c2);
-     Line3 ld(d1, d2);
-     auto res3d_2 = lc.intersect(ld);
-     std::cout << "[3D intersect] intersects=" << res3d_2.intersects
-     << ", point=" << res3d_2.pointOnThis.coords.transpose() << "\n";
-     printTest("3D Line intersection (intersecting)", res3d_2.intersects && approxEqual(res3d_2.pointOnThis, Point3{0.5, 0.5, 0.5}));
-     }
-     
-     // --- 4D Intersection Tests ---
-     Euclid::setSpaceDimension(4);
-     {
-     // Skew lines: (0,0,0,0)-(1,0,0,0) and (0,1,1,1)-(0,2,2,2), do not intersect
-     Point4 a1{0.0f, 0.0f, 0.0f, 0.0f};
-     Point4 a2{1.0f, 0.0f, 0.0f, 0.0f};
-     Point4 b1{0.0f, 1.0f, 1.0f, 1.0f};
-     Point4 b2{0.0f, 2.0f, 2.0f, 2.0f};
-     Line4 la(a1, a2);
-     Line4 lb(b1, b2);
-     auto res4d = la.intersect(lb);
-     std::cout << "res4d.intersects = " << res4d.intersects << ", res4d.pointOnThis = " << res4d.pointOnThis.coords.transpose() << "\n";
-     printTest("4D Line intersection (skew, no intersection)", !res4d.intersects);
-     
-     // Intersecting lines: (0,0,0,0)-(1,1,1,1) and (1,0,0,0)-(0,1,1,1), intersect at (0.5,0.5,0.5,0.5)
-     Point4 c1{0.0f, 0.0f, 0.0f, 0.0f};
-     Point4 c2{1.0f, 1.0f, 1.0f, 1.0f};
-     Point4 d1{1.0f, 0.0f, 0.0f, 0.0f};
-     Point4 d2{0.0f, 1.0f, 1.0f, 1.0f};
-     Line4 lc(c1, c2);
-     Line4 ld(d1, d2);
-     auto res4d_2 = lc.intersect(ld);
-     std::cout << "[4D intersect] intersects=" << res4d_2.intersects
-     << ", point=" << res4d_2.pointOnThis.coords.transpose() << "\n";
-     printTest("4D Line intersection (intersecting)", res4d_2.intersects && approxEqual(res4d_2.pointOnThis, Point4{0.5f, 0.5f, 0.5f, 0.5f}));
-     }
-     
-     // --- 5D Intersection Tests ---
-     Euclid::setSpaceDimension(5);
-     {
-     // Skew lines: (0,0,0,0,0)-(1,0,0,0,0) and (0,1,1,1,1)-(0,2,2,2,2), do not intersect
-     Point5 a1{0.0, 0.0, 0.0, 0.0, 0.0};
-     Point5 a2{1.0, 0.0, 0.0, 0.0, 0.0};
-     Point5 b1{0.0, 1.0, 1.0, 1.0, 1.0};
-     Point5 b2{0.0, 2.0, 2.0, 2.0, 2.0};
-     Line5 la(a1, a2);
-     Line5 lb(b1, b2);
-     auto res5d = la.intersect(lb);
-     std::cout << "res5d.intersects = " << res5d.intersects << ", res5d.pointOnThis = " << res5d.pointOnThis.coords.transpose() << "\n";
-     printTest("5D Line intersection (skew, no intersection)", !res5d.intersects);
-     
-     // Intersecting lines: (0,0,0,0,0)-(1,1,1,1,1) and (1,0,0,0,0)-(0,1,1,1,1), intersect at (0.5,0.5,0.5,0.5,0.5)
-     Point5 c1{0.0, 0.0, 0.0, 0.0, 0.0};
-     Point5 c2{1.0, 1.0, 1.0, 1.0, 1.0};
-     Point5 d1{1.0, 0.0, 0.0, 0.0, 0.0};
-     Point5 d2{0.0, 1.0, 1.0, 1.0, 1.0};
-     Line5 lc(c1, c2);
-     Line5 ld(d1, d2);
-     auto res5d_2 = lc.intersect(ld);
-     std::cout << "[5D intersect] intersects=" << res5d_2.intersects
-     << ", point=" << res5d_2.pointOnThis.coords.transpose() << "\n";
-     printTest("5D Line intersection (intersecting)", res5d_2.intersects && approxEqual(res5d_2.pointOnThis, Point5{0.5, 0.5, 0.5, 0.5, 0.5}));
-     }
-     */
-    
-    Euclid::setSpaceDimension(oldDimension);
+
+    // --- 5D Intersection Tests ---
+    {
+        Line5 l5_1(Point5{0.0, 0.0, 0.0, 0.0, 0.0}, Vec5{1.0, 0.0, 0.0, 0.0, 0.0});
+        Line5 l5_2(Point5{0.0, 0.0, 0.0, 0.0, 0.0}, Vec5{0.0, 1.0, 0.0, 0.0, 0.0});
+        Line5::LineIntersection result = l5_1.intersect(l5_2);
+        printTest("5D Lines intersect (at origin)", result.intersects);
+        if (result.intersects) {
+            printTest("5D Intersection point on line 1", approxEqual(result.pointOnThis, result.pointOnThis, 1e-6));
+            printTest("5D Intersection point on line 2", approxEqual(result.pointOnOther, result.pointOnOther, 1e-6));
+            printTest("5D Intersection points equal", approxEqual(result.pointOnThis, result.pointOnOther, 1e-6));
+        }
+
+        // Parallel lines in 5D
+        Line5 l5_3(Point5{0.0, 0.0, 0.0, 0.0, 0.0}, Vec5{1.0, 0.0, 0.0, 0.0, 0.0});
+        Line5 l5_4(Point5{0.0, 1.0, 0.0, 0.0, 0.0}, Vec5{1.0, 0.0, 0.0, 0.0, 0.0});
+        result = l5_3.intersect(l5_4);
+        printTest("5D Parallel lines do not intersect", !result.intersects);
+    }
     
     std::cout << "\nTesting Line Transform Logic\n";
     
-    int oldDim = Euclid::getSpaceDimension();
-    Euclid::setSpaceDimension(2);
     using Point2 = Point<float,2>;
     using Vec2 = Eigen::Matrix<float,2,1>;
     using Line2 = Line<float,2>;
@@ -243,7 +199,6 @@ inline void testLine() {
     printTest("Line transform (rotation about pivot) point", approxEqual(l_rotated.point1(), expectedPointRot, 1e-6f));
     printTest("Line transform (rotation about pivot) direction", l_rotated.direction().isApprox(expectedDirRot, 1e-6f));
     
-    Euclid::setSpaceDimension(oldDim);
     
 }
     
@@ -251,11 +206,8 @@ inline void testLine() {
 inline void testLineMeasureAngle() {
     std::cout << "\nTesting Line MeasureAngle Logic\n";
 
-    int oldDim = Euclid::getSpaceDimension();
-    Euclid::setSpaceDimension(2);
 
     using Point2 = Point<float,2>;
-    using Vec2 = Eigen::Matrix<float,2,1>;
     using Line2 = Line<float,2>;
 
     Point2 p0{0.0f, 0.0f};
@@ -276,5 +228,4 @@ inline void testLineMeasureAngle() {
     printTest("Angle between same direction lines", std::abs(angleZero - 0.0f) < 1e-6f);
     printTest("Angle between opposite direction lines", std::abs(anglePi - M_PI) < 1e-6f);
 
-    Euclid::setSpaceDimension(oldDim);
 }

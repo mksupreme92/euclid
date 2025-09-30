@@ -11,13 +11,12 @@
 ## 📐 Geometry Primitives
 
 - [x] `Point`
-- [ ] `Line`
-    - need to revisit logic for intersection tests & implement line segments, otherwise complete  
-- [x] `Curve` - Parametric Linear & Nonlinear Curves
+- [x] `Line`
+- [x] `Curve`
 - [x] `Plane`
 - [x] `Face`
 - [x] `Surface` 
-- [ ] `Volume` ((ℝ³ → ℝⁿ))
+- [x] `Volume` ((ℝ³ → ℝⁿ))
 
 ## 🧮 Operations on Geometry Primitives
 - [x] `Transformations` - Affine, Linear, Orthagonal, Special Orthagonal, Projective

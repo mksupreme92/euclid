@@ -5,6 +5,9 @@
 #include <cmath>
 #include <numeric>
 #include <iostream>
+#include <map>
+#include <vector>
+#include <set>
 #include <Eigen/Dense>
 #include "point.hpp"
 #include "face.hpp"
@@ -115,14 +118,9 @@ public:
             auto [tangent, normal, binormal] = frameAt(uVal);
             Eigen::Matrix<T,3,1> center = spineCurve.evaluate(uVal).coords;
 
-            Eigen::Matrix<T,3,1> cs;
-            if constexpr (std::is_invocable_v<decltype(crossSectionFunc), T>) {
-                cs = crossSectionFunc(vVal).coords; // old 1-arg API
-            } else {
-                cs = crossSectionFunc(vVal, Point<T,3>(tangent), Point<T,3>(normal), Point<T,3>(binormal)).coords;
-            }
+            Point<T,2> cs = crossSectionFunc(vVal);
 
-            Eigen::Matrix<T,3,1> offset = normal*cs(0) + binormal*cs(1);
+            Eigen::Matrix<T,3,1> offset = normal*cs.coords(0) + binormal*cs.coords(1);
             return Point<T,3>(center + offset);
         };
 
@@ -198,6 +196,87 @@ public:
         }
         return total;
     }
+
+    struct TopologyCheckResult {
+        bool isClosed;
+        std::vector<std::vector<size_t>> boundarySubfaces;
+    };
+
+    TopologyCheckResult hasClosedTopology() const {
+        TopologyCheckResult result{true, {}};
+        if constexpr (N < 2) {
+            // Not defined for dimension less than 2 (no faces)
+            result.isClosed = false;
+            return result;
+        }
+
+        // Determine subface size: (N-2)-faces have (N-1) vertices
+        const int subfaceSize = N - 1;
+
+        // Map from canonical subface (sorted indices) to count
+        std::map<std::vector<size_t>, int> subfaceCount;
+
+        // Helper lambda to check if face is degenerate (repeated vertices)
+        auto isDegenerateFace = [&](const std::vector<size_t>& face) -> bool {
+            std::set<size_t> uniqueVerts(face.begin(), face.end());
+            if (uniqueVerts.size() < face.size()) return true;
+            if constexpr (N == 3) {
+                // For 3D triangles, also check zero area
+                if (face.size() == 3) {
+                    const auto& a = vertices[face[0]].coords;
+                    const auto& b = vertices[face[1]].coords;
+                    const auto& c = vertices[face[2]].coords;
+                    auto ab = b - a;
+                    auto ac = c - a;
+                    auto cross = ab.cross(ac);
+                    if (cross.norm() < 1e-12) return true;
+                }
+            }
+            return false;
+        };
+
+        for (const auto& face : faces) {
+            if (face.size() < subfaceSize) {
+                // Skip degenerate or too small faces
+                continue;
+            }
+            if (isDegenerateFace(face)) continue;
+
+            if constexpr (N == 3) {
+                // For 3D triangular mesh, (N-2)-faces are edges (pairs of vertices)
+                // Each face has 3 edges
+                for (size_t i = 0; i < 3; ++i) {
+                    std::vector<size_t> edge = {face[i], face[(i+1)%3]};
+                    std::sort(edge.begin(), edge.end());
+                    subfaceCount[edge]++;
+                }
+            } else {
+                // For general ND, generate all (N-2)-faces by removing one vertex from the face
+                // Each (N-2)-face has subfaceSize = N-1 vertices
+                for (size_t i = 0; i < face.size(); ++i) {
+                    std::vector<size_t> subface;
+                    subface.reserve(subfaceSize);
+                    for (size_t j = 0; j < face.size(); ++j) {
+                        if (j != i) {
+                            subface.push_back(face[j]);
+                        }
+                    }
+                    std::sort(subface.begin(), subface.end());
+                    subfaceCount[subface]++;
+                }
+            }
+        }
+
+        // Identify boundary subfaces (those with count != 2)
+        for (const auto& [subface, count] : subfaceCount) {
+            if (count != 2) {
+                result.isClosed = false;
+                result.boundarySubfaces.push_back(subface);
+            }
+        }
+
+        return result;
+    }
 };
 
 // Generate a grid-based mesh
@@ -235,6 +314,72 @@ SurfaceMesh<T,N> generateSurfaceMesh(const Surface<T,N>& surf, int uSteps, int v
             mesh.faces.push_back({idx, idxDiag, idxDown});
         }
     }
+
+    // (Planar capping and boundary triangulation removed)
+
+    return mesh;
+}
+
+template<typename T>
+SurfaceMesh<T,3> generatePeriodicWrappedMesh(
+    const Surface<T,3>& surf,
+    int uSteps,
+    int vSteps,
+    bool uPeriodic = false,
+    bool vPeriodic = false
+) {
+    SurfaceMesh<T,3> mesh;
+    auto& domain = surf.surfaceDomain;
+    T umin = domain.first.first;
+    T vmin = domain.first.second;
+    T umax = domain.second.first;
+    T vmax = domain.second.second;
+
+    T stepU = (umax - umin) / T(uSteps - 1);
+    T stepV = (vmax - vmin) / T(vSteps - 1);
+
+    // Determine effective number of vertices in u and v directions
+    int vertCountU = uPeriodic ? uSteps - 1 : uSteps;
+    int vertCountV = vPeriodic ? vSteps - 1 : vSteps;
+
+    // Generate vertices with seam vertices shared if periodic
+    for (int j = 0; j < vertCountV; ++j) {
+        T v = vmin + stepV * j;
+        for (int i = 0; i < vertCountU; ++i) {
+            T u = umin + stepU * i;
+            mesh.vertices.push_back(surf.evaluate(u, v));
+        }
+    }
+
+    // Helper to get vertex index with wrapping
+    auto vertexIndex = [&](int i, int j) -> size_t {
+        if (uPeriodic) {
+            i = i % vertCountU;
+            if (i < 0) i += vertCountU;
+        }
+        if (vPeriodic) {
+            j = j % vertCountV;
+            if (j < 0) j += vertCountV;
+        }
+        return i + j * vertCountU;
+    };
+
+    // Generate faces
+    int faceCountU = uPeriodic ? vertCountU : vertCountU - 1;
+    int faceCountV = vPeriodic ? vertCountV : vertCountV - 1;
+
+    for (int j = 0; j < faceCountV; ++j) {
+        for (int i = 0; i < faceCountU; ++i) {
+            size_t idx00 = vertexIndex(i, j);
+            size_t idx10 = vertexIndex(i + 1, j);
+            size_t idx01 = vertexIndex(i, j + 1);
+            size_t idx11 = vertexIndex(i + 1, j + 1);
+
+            mesh.faces.push_back({idx00, idx10, idx11});
+            mesh.faces.push_back({idx00, idx11, idx01});
+        }
+    }
+
     return mesh;
 }
 

@@ -8,8 +8,8 @@
 #include "test_face.hpp"
 #include "test_surface.hpp"
 #include "test_surface_mesh.hpp"
+#include "test_volume.hpp"
 #include "test_utilities.hpp"
-#include "config.hpp"
 
 using namespace euclid::geometry;
 using namespace euclid::tests;
@@ -17,8 +17,8 @@ using namespace euclid::tests;
 
 // Call in testGeometry
 inline void testGeometry() {
-    /*
     std::cout << "\n📐 Testing Geometry Logic\n";
+    /*
     testPoint();
     testPointRotationAboutPivotCompact();
     testLine();
@@ -26,8 +26,9 @@ inline void testGeometry() {
     testCurve();
     testPlane();
     testFace();
-    testSurface();
     */
-    testSurfaceMeshing();
-    
+    testSurface();
+    //testSurfaceMeshing();
+    //testVolumeMeshing();
+
 }

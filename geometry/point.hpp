@@ -1,6 +1,5 @@
 #pragma once
 
-#include "config.hpp"
 #include <Eigen/Dense>
 #include <cmath>
 #include "../algebra/metric.hpp"
@@ -13,30 +12,14 @@ struct Point {
 
     // === Constructors ===
     Point() : coords(Eigen::Matrix<T, N, 1>::Zero()) {
-        if constexpr (N == Eigen::Dynamic) {
-            assert(coords.size() == Euclid::getSpaceDimension() && "Point dimension mismatch");
-        } else {
-            assert(N == Euclid::getSpaceDimension() && "Point dimension mismatch");
-        }
     }
     explicit Point(const Eigen::Matrix<T, N, 1>& v) : coords(v) {
-        if constexpr (N == Eigen::Dynamic) {
-            assert(coords.size() == Euclid::getSpaceDimension() && "Point dimension mismatch");
-        } else {
-            assert(N == Euclid::getSpaceDimension() && "Point dimension mismatch");
-        }
     }
 
     // From initializer list
     Point(std::initializer_list<T> list) {
-        assert(list.size() == Euclid::getSpaceDimension() && "Initializer list size mismatch for Point");
         int i = 0;
         for (auto v : list) coords[i++] = v;
-        if constexpr (N == Eigen::Dynamic) {
-            assert(coords.size() == Euclid::getSpaceDimension() && "Point dimension mismatch");
-        } else {
-            assert(N == Euclid::getSpaceDimension() && "Point dimension mismatch");
-        }
     }
 
     // === Access ===
