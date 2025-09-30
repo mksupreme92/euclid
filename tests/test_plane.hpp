@@ -5,7 +5,6 @@
 #include "geometry/point.hpp"
 #include "geometry/plane.hpp"
 #include "test_utilities.hpp"
-#include "config.hpp"
 
 using namespace euclid::geometry;
 using namespace euclid::tests;
@@ -13,10 +12,8 @@ using namespace euclid::tests;
 inline void testPlane() {
     std::cout << "\n⧉ Testing Plane Primitive\n";
 
-    int oldDim = Euclid::getSpaceDimension();
 
     // --- 2D Plane (line) ---
-    Euclid::setSpaceDimension(2);
     using Point2 = Point<float,2>;
     using Plane2 = Plane<float,2>;
 
@@ -42,7 +39,6 @@ inline void testPlane() {
     }
 
     // --- 3D Plane ---
-    Euclid::setSpaceDimension(3);
     using Point3 = Point<float,3>;
     using Plane3 = Plane<float,3>;
 
@@ -73,7 +69,6 @@ inline void testPlane() {
     }
 
     // --- 4D Hyperplane ---
-    Euclid::setSpaceDimension(4);
     using Point4 = Point<float,4>;
     using Plane4 = Plane<float,4>;
 
@@ -108,7 +103,6 @@ inline void testPlane() {
     }
 
     // --- 5D Hyperplane ---
-    Euclid::setSpaceDimension(5);
     using Point5 = Point<float,5>;
     using Plane5 = Plane<float,5>;
 
@@ -148,7 +142,6 @@ inline void testPlane() {
 
 
     // --- Plane from point + direction (fixed 3D) ---
-    Euclid::setSpaceDimension(3);
     using Point3 = Point<float,3>;
     using Plane3 = Plane<float,3>;
     Eigen::Vector3f dir3;
@@ -165,7 +158,6 @@ inline void testPlane() {
     }
 
     // --- Plane from point + direction (2D) ---
-    Euclid::setSpaceDimension(2);
     using Point2 = Point<float,2>;
     using Plane2 = Plane<float,2>;
     Eigen::Vector2f dir2;
@@ -182,7 +174,6 @@ inline void testPlane() {
     }
 
     // --- Plane from point + direction (4D) ---
-    Euclid::setSpaceDimension(4);
     using Point4 = Point<float,4>;
     using Plane4 = Plane<float,4>;
     Eigen::Vector4f dir4;
@@ -199,7 +190,6 @@ inline void testPlane() {
     }
 
     // --- Plane from point + direction (5D) ---
-    Euclid::setSpaceDimension(5);
     using Point5 = Point<float,5>;
     using Plane5 = Plane<float,5>;
     Eigen::Matrix<float,5,1> dir5;
@@ -217,7 +207,6 @@ inline void testPlane() {
 
     // --- Plane Transform Tests ---
     std::cout << "\nTesting Plane Transformations\n";
-    Euclid::setSpaceDimension(3);
     using Point3 = Point<float,3>;
     using Plane3 = Plane<float,3>;
 
@@ -243,5 +232,4 @@ inline void testPlane() {
         std::cerr << "Failed to construct Plane3 for transform test\n";
     }
 
-    Euclid::setSpaceDimension(oldDim);
 }

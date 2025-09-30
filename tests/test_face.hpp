@@ -7,10 +7,8 @@
 inline void testFaceTransforms() {
     std::cout << "\nTesting Face Transformations\n";
 
-    int oldDim = Euclid::getSpaceDimension();
 
     // --- 3D Face ---
-    Euclid::setSpaceDimension(3);
     using Point3 = Point<double,3>;
     using Face3  = Face<double,3>;
 
@@ -41,7 +39,6 @@ inline void testFaceTransforms() {
     printTest("Face3 transform: normal", normalOk3);
 
     // --- 5D Face ---
-    Euclid::setSpaceDimension(5);
     using Point5 = Point<double,5>;
     using Face5  = Face<double,5>;
 
@@ -71,12 +68,10 @@ inline void testFaceTransforms() {
     printTest("Face5 transform: vertices", verticesOk5);
     printTest("Face5 transform: plane consistency", allInside);
 
-    Euclid::setSpaceDimension(oldDim);
 }
 
 template<typename T>
 void testFace2D() {
-    Euclid::setSpaceDimension(2);  // ensure 2D space
 
     using Point2 = Point<T, 2>;
     using Face2  = Face<T, 2>;
@@ -91,7 +86,6 @@ void testFace2D() {
 
 template<typename T>
 void testFace3D() {
-    Euclid::setSpaceDimension(3);  // ensure 3D space
 
     using Point3 = Point<T, 3>;
     using Face3  = Face<T, 3>;
@@ -107,7 +101,6 @@ void testFace3D() {
 
 template<typename T>
 void testFace5D() {
-    Euclid::setSpaceDimension(5);  // ensure 5D space
 
     using Point5 = Point<T, 5>;
     using Face5  = Face<T, 5>;

@@ -73,7 +73,7 @@ struct Affine : Linear<T,N> {
 
     static Affine scale(const Eigen::Matrix<T,N,1>& s) {
         Eigen::Matrix<T,N,N> S = Eigen::Matrix<T,N,N>::Zero();
-        for (size_t i = 0; i < s.size(); ++i) {
+        for (typename Eigen::Matrix<T,N,1>::Index i = 0; i < s.size(); ++i) {
             S(i,i) = s(i);
         }
         return Affine(S, Eigen::Matrix<T,N,1>::Zero());

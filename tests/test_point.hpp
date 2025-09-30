@@ -5,8 +5,6 @@ inline void testPoint() {
     std::cout << "\n📍 Testing Point Primitive\n\n";
 
     // Save the old space dimension and set the new one
-    int oldDimension = Euclid::getSpaceDimension();
-    Euclid::setSpaceDimension(2);
 
     using Point2 = Point<float, 2>;
     using Vec2 = Eigen::Matrix<float, 2, 1>;
@@ -73,8 +71,6 @@ inline void testPoint() {
     printTest("Point transform (scale + translation combo)", approxEqual(p_transformed2, expectedScaleTranslate));
 
     // --- Rotate point about another point ---
-    int oldDim = Euclid::getSpaceDimension();
-    Euclid::setSpaceDimension(2);
 
     Point2 pivot{2.0f, 1.0f};
     float angle = M_PI / 2.0f; // 90 degrees
@@ -94,18 +90,13 @@ inline void testPoint() {
     };
     printTest("Point rotation about another point", approxEqual(p_rotated, expectedRotated, 1e-6f));
 
-    Euclid::setSpaceDimension(oldDim);
 
     // Reset to old space dimension to avoid side effects
-    Euclid::setSpaceDimension(oldDimension);
 }
 
 inline void testPointRotationAboutPivotCompact() {
-    int oldDim = Euclid::getSpaceDimension();
-    Euclid::setSpaceDimension(2);
 
     using Point2 = Point<float,2>;
-    using Vec2   = Eigen::Matrix<float,2,1>;
 
     Point2 p{1.0f, 2.0f};
     Point2 pivot{2.0f, 1.0f};
@@ -139,5 +130,4 @@ inline void testPointRotationAboutPivotCompact() {
         std::cout << "Expected: [" << expected.coords.transpose() << "]\n";
     }
 
-    Euclid::setSpaceDimension(oldDim);
 }
