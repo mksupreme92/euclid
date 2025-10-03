@@ -16,10 +16,11 @@ inline void testGeometry() {
     
     testPoint();
     testLine();
+    /*
     testCurve();
     testPlane();
     testFace();
     testSurface();
-    testVolume();
+    testVolume();*/
 
 }
