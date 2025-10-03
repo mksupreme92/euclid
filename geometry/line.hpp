@@ -2,6 +2,7 @@
 
 #include <Eigen/Core>
 #include "point.hpp"
+#include "tolerance.hpp"
 
 namespace Euclid::Geometry {
 
@@ -80,7 +81,8 @@ public:
         Eigen::Matrix<Scalar, Eigen::Dynamic, 1> point_on_other = p2 + ts(1) * d2;
 
         Scalar dist = (point_on_this - point_on_other).norm();
-        Scalar tol = Scalar(1e-12) * static_cast<Scalar>(Dim);
+        Tolerance tolObj;
+        Scalar tol = tolObj.evaluateEpsilon(static_cast<double>(Dim));
         bool does_intersect = dist <= tol;
 
         return {does_intersect,
