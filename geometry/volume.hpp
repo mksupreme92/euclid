@@ -8,7 +8,7 @@
 #include <fstream>
 #include <string>
 
-namespace euclid::geometry {
+namespace Euclid::Geometry {
 
 // ---------------------------
 // Parametric Volume
@@ -93,7 +93,8 @@ public:
             Eigen::Matrix<T,3,1> vCurr = tangents[i];
             Eigen::Matrix<T,3,1> axis = vPrev.cross(vCurr);
             T axisNorm = axis.norm();
-            if(axisNorm < 1e-12){
+            Euclid::Tolerance tol;
+            if(Euclid::equalWithinTolerance(axisNorm, T(0), tol, axisNorm)){
                 normals[i] = normals[i-1];
                 binormals[i] = binormals[i-1];
                 continue;
@@ -292,4 +293,4 @@ VolumeMesh<T,N> generateStructuredVolumeMesh(const Volume<T,N>& vol,
     return mesh;
 }
 
-} // namespace euclid::geometry
+} // namespace Euclid::Geometry

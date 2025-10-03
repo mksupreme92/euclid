@@ -2,9 +2,9 @@
 
 #include <Eigen/Dense>
 #include <cmath>
-#include "../algebra/metric.hpp"
+#include "tolerance.hpp"
 
-namespace euclid::geometry {
+namespace Euclid::Geometry {
 
 template <typename T, int N>
 struct Point {
@@ -28,9 +28,19 @@ struct Point {
 
     // === Equality ===
     bool operator==(const Point& other) const {
-        return coords.isApprox(other.coords);
+        return isEqual(other);
     }
     bool operator!=(const Point& other) const { return !(*this == other); }
+
+    bool isEqual(const Point& other, const Euclid::Tolerance& tol = Euclid::Tolerance()) const {
+        T scale = std::max(coordinateMagnitude(), other.coordinateMagnitude());
+        for (int i = 0; i < coords.size(); ++i) {
+            if (!Euclid::equalWithinTolerance(coords[i], other.coords[i], tol, scale)) {
+                return false;
+            }
+        }
+        return true;
+    }
 
     // === Arithmetic ===
     Point operator+(const Eigen::Matrix<T, N, 1>& v) const {
@@ -51,10 +61,16 @@ struct Point {
     Point midpoint(const Point& other) const {
         return Point((coords + other.coords) / T(2));
     }
+
+    // === Additional methods ===
+    T coordinateMagnitude() const {
+        return coords.norm();
+    }
+
 };
 
 // Template deduction guide for dynamic points (Eigen::Dynamic)
 template <typename T, typename... Ts>
 Point(T, Ts...) -> Point<T, Eigen::Dynamic>;
 
-} // namespace euclid::geometry
+} // namespace Euclid::Geometry

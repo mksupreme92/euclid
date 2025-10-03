@@ -1,6 +1,6 @@
 #include "tests/run_tests.hpp"
 
 int main() {
-    euclid::tests::runAllTests();
+    runAllTests();
     return 0;
 }

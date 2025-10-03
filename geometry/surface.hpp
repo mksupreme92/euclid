@@ -10,9 +10,8 @@
 #include <set>
 #include <Eigen/Dense>
 #include "point.hpp"
-#include "face.hpp"
 
-namespace euclid::geometry {
+namespace Euclid::Geometry {
 
 template<typename T, int N>
 class Surface {
@@ -92,7 +91,8 @@ public:
             Eigen::Matrix<T,3,1> vCurr = tangents[i];
             Eigen::Matrix<T,3,1> axis = vPrev.cross(vCurr);
             T axisNorm = axis.norm();
-            if(axisNorm < 1e-12){
+            Euclid::Tolerance tol;
+            if(Euclid::equalWithinTolerance(axisNorm, T(0), tol, axisNorm)){
                 normals[i] = normals[i-1];
                 binormals[i] = binormals[i-1];
                 continue;
@@ -310,8 +310,8 @@ SurfaceMesh<T,N> generateSurfaceMesh(const Surface<T,N>& surf, int uSteps, int v
             size_t idxRight = idx+1;
             size_t idxDown = idx+uSteps;
             size_t idxDiag = idx+uSteps+1;
-            mesh.faces.push_back({idx, idxRight, idxDiag});
-            mesh.faces.push_back({idx, idxDiag, idxDown});
+            mesh.faces.push_back({idx, idxDiag, idxRight});
+            mesh.faces.push_back({idx, idxDown, idxDiag});
         }
     }
 
@@ -383,4 +383,4 @@ SurfaceMesh<T,3> generatePeriodicWrappedMesh(
     return mesh;
 }
 
-} // namespace euclid::geometry
+} // namespace Euclid::Geometry

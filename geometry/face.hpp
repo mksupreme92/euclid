@@ -5,7 +5,7 @@
 #include <Eigen/Dense>
 #include "point.hpp"
 
-namespace euclid::geometry {
+namespace Euclid::Geometry {
 
 template<typename T, int N>
 class Face {
@@ -145,4 +145,4 @@ private:
     }
 };
 
-} // namespace euclid::geometry
+} // namespace Euclid::Geometry

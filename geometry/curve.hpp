@@ -6,7 +6,7 @@
 #include "point.hpp"
 #include "algebra/transform.hpp"
 
-namespace euclid::geometry {
+namespace Euclid::Geometry {
 
 template <typename Scalar, int Dim = Eigen::Dynamic>
 class Curve {
@@ -47,4 +47,4 @@ private:
     std::pair<Scalar, Scalar> domain_;
 };
 
-} // namespace euclid::geometry
+} // namespace Euclid::Geometry

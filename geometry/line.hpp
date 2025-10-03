@@ -3,7 +3,7 @@
 #include <Eigen/Core>
 #include "point.hpp"
 
-namespace euclid::geometry {
+namespace Euclid::Geometry {
 
 template <typename Scalar, int Dim = Eigen::Dynamic>
 class Line {
