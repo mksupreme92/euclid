@@ -6,11 +6,14 @@
 #include "geometry/plane.hpp"
 #include "test_utilities.hpp"
 
-using namespace euclid::geometry;
-using namespace euclid::tests;
+using namespace Euclid::Geometry;
+using namespace Euclid::Algebra;
+using namespace Euclid::Tests;
 
 inline void testPlane() {
     std::cout << "\n⧉ Testing Plane Primitive\n";
+    
+    Euclid::Tolerance tol;
 
 
     // --- 2D Plane (line) ---
@@ -31,9 +34,9 @@ inline void testPlane() {
         float dist_p0 = plane2.signedDistance(p0);
         float dist_p1 = plane2.signedDistance(p1);
         float dist_off = plane2.signedDistance(Point2{0.5f,1.0f});
-        printTest("2D Plane signed distance is zero on p0", std::abs(dist_p0) < 1e-6f);
-        printTest("2D Plane signed distance is zero on p1", std::abs(dist_p1) < 1e-6f);
-        printTest("2D Plane signed distance is non-zero off-line point", std::abs(dist_off) > 1e-6f);
+        printTest("2D Plane signed distance is zero on p0", Euclid::equalWithinTolerance(dist_p0, 0.0f, tol, std::max(dist_p0, 1.0f)));
+        printTest("2D Plane signed distance is zero on p1", Euclid::equalWithinTolerance(dist_p1, 0.0f, tol, std::max(dist_p1, 1.0f)));
+        printTest("2D Plane signed distance is non-zero off-line point", !Euclid::equalWithinTolerance(dist_off, 0.0f, tol, std::max(dist_off, 1.0f)));
     } else {
         std::cerr << "Failed to construct 2D plane from points\n";
     }
@@ -60,10 +63,10 @@ inline void testPlane() {
         float dist_pb = plane3.signedDistance(pb);
         float dist_pc = plane3.signedDistance(pc);
         float dist_off = plane3.signedDistance(Point3{0.0f,0.0f,1.0f});
-        printTest("3D Plane signed distance is zero on pa", std::abs(dist_pa) < 1e-6f);
-        printTest("3D Plane signed distance is zero on pb", std::abs(dist_pb) < 1e-6f);
-        printTest("3D Plane signed distance is zero on pc", std::abs(dist_pc) < 1e-6f);
-        printTest("3D Plane signed distance is non-zero off-plane point", std::abs(dist_off) > 1e-6f);
+        printTest("3D Plane signed distance is zero on pa", Euclid::equalWithinTolerance(dist_pa, 0.0f, tol, std::max(dist_pa, 1.0f)));
+        printTest("3D Plane signed distance is zero on pb", Euclid::equalWithinTolerance(dist_pb, 0.0f, tol, std::max(dist_pb, 1.0f)));
+        printTest("3D Plane signed distance is zero on pc", Euclid::equalWithinTolerance(dist_pc, 0.0f, tol, std::max(dist_pc, 1.0f)));
+        printTest("3D Plane signed distance is non-zero off-plane point", !Euclid::equalWithinTolerance(dist_off, 0.0f, tol, std::max(dist_off, 1.0f)));
     } else {
         std::cerr << "Failed to construct 3D plane from points\n";
     }
@@ -93,11 +96,11 @@ inline void testPlane() {
         float dist_p4c = plane4.signedDistance(p4c);
         float dist_p4d = plane4.signedDistance(p4d);
         float dist_off = plane4.signedDistance(Point4{0.0f,0.0f,0.0f,1.0f});
-        printTest("4D Plane signed distance is zero on p4a", std::abs(dist_p4a) < 1e-6f);
-        printTest("4D Plane signed distance is zero on p4b", std::abs(dist_p4b) < 1e-6f);
-        printTest("4D Plane signed distance is zero on p4c", std::abs(dist_p4c) < 1e-6f);
-        printTest("4D Plane signed distance is zero on p4d", std::abs(dist_p4d) < 1e-6f);
-        printTest("4D Plane signed distance is non-zero off-plane point", std::abs(dist_off) > 1e-6f);
+        printTest("4D Plane signed distance is zero on p4a", Euclid::equalWithinTolerance(dist_p4a, 0.0f, tol, std::max(dist_p4a, 1.0f)));
+        printTest("4D Plane signed distance is zero on p4b", Euclid::equalWithinTolerance(dist_p4b, 0.0f, tol, std::max(dist_p4b, 1.0f)));
+        printTest("4D Plane signed distance is zero on p4c", Euclid::equalWithinTolerance(dist_p4c, 0.0f, tol, std::max(dist_p4c, 1.0f)));
+        printTest("4D Plane signed distance is zero on p4d", Euclid::equalWithinTolerance(dist_p4d, 0.0f, tol, std::max(dist_p4d, 1.0f)));
+        printTest("4D Plane signed distance is non-zero off-plane point", !Euclid::equalWithinTolerance(dist_off, 0.0f, tol, std::max(dist_off, 1.0f)));
     } else {
         std::cerr << "Failed to construct 4D plane from points\n";
     }
@@ -130,12 +133,12 @@ inline void testPlane() {
         float dist_p5d = plane5.signedDistance(p5d);
         float dist_p5e = plane5.signedDistance(p5e);
         float dist_off = plane5.signedDistance(Point5{0,0,0,0,1});
-        printTest("5D Plane signed distance is zero on p5a", std::abs(dist_p5a) < 1e-6f);
-        printTest("5D Plane signed distance is zero on p5b", std::abs(dist_p5b) < 1e-6f);
-        printTest("5D Plane signed distance is zero on p5c", std::abs(dist_p5c) < 1e-6f);
-        printTest("5D Plane signed distance is zero on p5d", std::abs(dist_p5d) < 1e-6f);
-        printTest("5D Plane signed distance is zero on p5e", std::abs(dist_p5e) < 1e-6f);
-        printTest("5D Plane signed distance is non-zero off-plane point", std::abs(dist_off) > 1e-6f);
+        printTest("5D Plane signed distance is zero on p5a", Euclid::equalWithinTolerance(dist_p5a, 0.0f, tol, std::max(dist_p5a, 1.0f)));
+        printTest("5D Plane signed distance is zero on p5b", Euclid::equalWithinTolerance(dist_p5b, 0.0f, tol, std::max(dist_p5b, 1.0f)));
+        printTest("5D Plane signed distance is zero on p5c", Euclid::equalWithinTolerance(dist_p5c, 0.0f, tol, std::max(dist_p5c, 1.0f)));
+        printTest("5D Plane signed distance is zero on p5d", Euclid::equalWithinTolerance(dist_p5d, 0.0f, tol, std::max(dist_p5d, 1.0f)));
+        printTest("5D Plane signed distance is zero on p5e", Euclid::equalWithinTolerance(dist_p5e, 0.0f, tol, std::max(dist_p5e, 1.0f)));
+        printTest("5D Plane signed distance is non-zero off-plane point", !Euclid::equalWithinTolerance(dist_off, 0.0f, tol, std::max(dist_off, 1.0f)));
     } else {
         std::cerr << "Failed to construct 5D plane from points\n";
     }
@@ -218,7 +221,7 @@ inline void testPlane() {
         // Define affine transform: rotation + translation
         Eigen::AngleAxisf rotation(M_PI/2.0f, Eigen::Vector3f::UnitZ());
         Eigen::Vector3f translation(1.0f, 2.0f, 3.0f);
-        euclid::algebra::Affine<float,3> affineTransform(rotation.toRotationMatrix(), translation);
+        Affine<float,3> affineTransform(rotation.toRotationMatrix(), translation);
 
         Plane3 transformedPlane = plane.applyTransform(affineTransform);
 
@@ -226,7 +229,7 @@ inline void testPlane() {
             Point3 pTrans = affineTransform.apply(p);
             printTest("Transformed plane contains transformed point", transformedPlane.contains(pTrans));
             float sd = transformedPlane.signedDistance(pTrans);
-            printTest("Signed distance to transformed plane is near zero", std::abs(sd) < 1e-5f);
+            printTest("Signed distance to transformed plane is near zero", Euclid::equalWithinTolerance(sd, 0.0f, tol, std::max(sd, 1.0f)));
         }
     } else {
         std::cerr << "Failed to construct Plane3 for transform test\n";

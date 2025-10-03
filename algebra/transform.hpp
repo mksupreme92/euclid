@@ -3,7 +3,7 @@
 #include <stdexcept>
 #include <cmath>
 
-namespace euclid::algebra {
+namespace Euclid::Algebra {
 
 // ---------------------------
 // Linear (matrix only)
@@ -132,4 +132,4 @@ struct Projective {
     }
 };
 
-} // namespace euclid::algebra
+} // namespace Euclid::Algebra

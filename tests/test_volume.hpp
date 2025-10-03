@@ -8,14 +8,16 @@
 #include <filesystem>
 #include <cmath>
 
-namespace euclid::geometry {
+using namespace Euclid::Geometry;
+using namespace Euclid::Algebra;
+using namespace Euclid::Tests;
 
 inline void testVolumeMeshing() {
     std::cout << "\n∰ Testing Volume Meshing\n";
     
     using Point3 = Point<float,3>;
     using Volume3 = Volume<float,3>;
-    using Curve3 = euclid::geometry::Curve<float,3>;
+    using Curve3 = Curve<float,3>;
     
     // --- Unit cube ---
     auto cubeFunc = [](float u, float v, float w) -> Point3 {
@@ -72,7 +74,7 @@ inline void testVolumeMeshing() {
     Curve3 trefoilCurve(trefoilCurveFunc, 0.0f, 2.0f * M_PI);
     
     
-    float trefoilRadius = 0.8f;
+    float trefoilRadius = 0.5f;
     int uSteps = 120;
     int vSteps = 10;
     int wSteps = 16;
@@ -92,4 +94,7 @@ inline void testVolumeMeshing() {
     
 }
 
-} // namespace euclid::geometry
+inline void testVolume() {
+    std::cout << "\n∰ Testing Volume Primitive\n";
+    testVolumeMeshing();
+}

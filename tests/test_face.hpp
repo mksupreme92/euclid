@@ -4,6 +4,10 @@
 #include "geometry/face.hpp"
 #include "geometry/point.hpp"
 
+using namespace Euclid::Geometry;
+using namespace Euclid::Algebra;
+using namespace Euclid::Tests;
+
 inline void testFaceTransforms() {
     std::cout << "\nTesting Face Transformations\n";
 
@@ -20,7 +24,7 @@ inline void testFaceTransforms() {
             1.0,  0.0, 0.0,
             0.0,  0.0, 1.0;
     Eigen::Vector3d trans3(1.0, 2.0, 3.0);
-    euclid::algebra::Affine<double,3> transform3(rot3, trans3);
+    Affine<double,3> transform3(rot3, trans3);
 
     Face3 face3Trans = face3.applyTransform(transform3);
 
@@ -28,12 +32,12 @@ inline void testFaceTransforms() {
     for (size_t i = 0; i < faceVerts3.size(); ++i) {
         Point3 expected(faceVerts3[i].coords);
         expected.coords = rot3 * expected.coords + trans3;
-        verticesOk3 &= approxEqual(face3Trans.vertices[i], expected, 1e-8);
+        verticesOk3 &= face3Trans.vertices[i].isEqual(expected, Euclid::Tolerance());
     }
 
     Eigen::Vector3d expectedNormal3 = rot3 * face3.normal;
     expectedNormal3.normalize();
-    bool normalOk3 = face3Trans.normal.isApprox(expectedNormal3, 1e-8);
+    bool normalOk3 = Euclid::equalWithinTolerance(face3Trans.normal, expectedNormal3, Euclid::Tolerance());
 
     printTest("Face3 transform: vertices", verticesOk3);
     printTest("Face3 transform: normal", normalOk3);
@@ -50,7 +54,7 @@ inline void testFaceTransforms() {
     Eigen::Matrix<double,5,1> trans5;
     trans5 << 1.0, -1.0, 0.5, 2.0, -0.5;
 
-    euclid::algebra::Affine<double,5> transform5(linear5, trans5);
+    Affine<double,5> transform5(linear5, trans5);
 
     Face5 face5Trans = face5.applyTransform(transform5);
 
@@ -58,7 +62,7 @@ inline void testFaceTransforms() {
     for (size_t i = 0; i < faceVerts5.size(); ++i) {
         Point5 expected(faceVerts5[i].coords);
         expected.coords = linear5 * expected.coords + trans5;
-        verticesOk5 &= approxEqual(face5Trans.vertices[i], expected, 1e-8);
+        verticesOk5 &= face5Trans.vertices[i].isEqual(expected, Euclid::Tolerance());
     }
 
     bool allInside = true;
