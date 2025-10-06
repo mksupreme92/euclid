@@ -51,7 +51,8 @@ public:
         Scalar cosTheta = d1.dot(d2) / (d1.norm() * d2.norm());
         return std::acos(std::clamp(cosTheta, Scalar(-1), Scalar(1)));
     }
-
+    
+    /* Moved to intersection/line_intersection.hpp
     template <typename Scalar2 = Scalar, int Dim2 = Dim>
     struct LineIntersection {
         bool intersects;
@@ -90,6 +91,8 @@ public:
                 Point<Scalar, Dim>(point_on_other),
                 dist};
     }
+     
+     */
 
 private:
     PointType m_point1;

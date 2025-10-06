@@ -1,5 +1,6 @@
 #include <iostream>
 #include "geometry/point.hpp"
+#include "test_point_intersection.hpp"
 #include "algebra/transform.hpp"
 #include "tests/test_utilities.hpp"
 
@@ -8,7 +9,7 @@ using namespace Euclid::Algebra;
 using namespace Euclid::Tests;
 
 inline void testPoint() {
-    std::cout << "\n📍 Testing Point Distance\n\n";
+    std::cout << "\n📍 Testing Point Primitive\n\n";
 
     using Point2 = Point<float, 2>;
 
@@ -116,4 +117,7 @@ inline void testPoint() {
         static_cast<float>(pivotCompact[1] + (p[0] - pivotCompact[0]))
     };
     printTest("Point rotation about pivot compact", p_rotatedCompact == expectedCompact);
+    
+    
+    testPointIntersection();
 }
