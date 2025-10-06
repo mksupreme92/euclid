@@ -1,7 +1,8 @@
 #include <iostream>
 #include "geometry/line.hpp"
 #include "algebra/transform.hpp"
-#include "tests/test_utilities.hpp"
+#include "test_line_intersection.hpp"
+#include "test_utilities.hpp"
 
 using namespace Euclid::Geometry;
 using namespace Euclid::Algebra;
@@ -41,7 +42,7 @@ inline void testLineMeasureAngle() {
 }
 
 inline void testLine() {
-    std::cout << "\n📏 Testing Line Primitive\n\n";
+    std::cout << "\n⟷ Testing Line Primitive\n\n";
     
     
     // --- 2D Tests ---
@@ -61,20 +62,20 @@ inline void testLine() {
 
     // --- 2D Intersection Tests ---
     {
-        Line2 l2_1(Point2{0.0f, 0.0f}, Vec2{1.0f, 1.0f});
-        Line2 l2_2(Point2{0.0f, 1.0f}, Vec2{1.0f, -1.0f});
-        Line2::LineIntersection result = l2_1.intersect(l2_2);
-        printTest("2D Lines intersect", result.intersects);
-        if (result.intersects) {
-            printTest("2D Intersection point on line 1", result.pointOnThis == result.pointOnThis);
-            printTest("2D Intersection point on line 2", result.pointOnOther == result.pointOnOther);
-        }
+        // Line2 l2_1(Point2{0.0f, 0.0f}, Vec2{1.0f, 1.0f});
+        // Line2 l2_2(Point2{0.0f, 1.0f}, Vec2{1.0f, -1.0f});
+        // Line2::LineIntersection result = l2_1.intersect(l2_2);
+        // printTest("2D Lines intersect", result.intersects);
+        // if (result.intersects) {
+        //     printTest("2D Intersection point on line 1", result.pointOnThis == result.pointOnThis);
+        //     printTest("2D Intersection point on line 2", result.pointOnOther == result.pointOnOther);
+        // }
 
         // Parallel lines
-        Line2 l2_3(Point2{0.0f, 0.0f}, Vec2{1.0f, 0.0f});
-        Line2 l2_4(Point2{0.0f, 1.0f}, Vec2{1.0f, 0.0f});
-        result = l2_3.intersect(l2_4);
-        printTest("2D Parallel lines do not intersect", !result.intersects);
+        // Line2 l2_3(Point2{0.0f, 0.0f}, Vec2{1.0f, 0.0f});
+        // Line2 l2_4(Point2{0.0f, 1.0f}, Vec2{1.0f, 0.0f});
+        // result = l2_3.intersect(l2_4);
+        // printTest("2D Parallel lines do not intersect", !result.intersects);
     }
     
     // --- 3D Tests ---
@@ -94,21 +95,21 @@ inline void testLine() {
 
     // --- 3D Intersection Tests ---
     {
-        Line3 l3_1(Point3{0.0, 0.0, 0.0}, Vec3{1.0, 0.0, 0.0});
-        Line3 l3_2(Point3{0.0, 0.0, 0.0}, Vec3{0.0, 1.0, 0.0});
-        Line3::LineIntersection result = l3_1.intersect(l3_2);
-        printTest("3D Lines intersect (at origin)", result.intersects);
-        if (result.intersects) {
-            printTest("3D Intersection point on line 1", result.pointOnThis == result.pointOnThis);
-            printTest("3D Intersection point on line 2", result.pointOnOther == result.pointOnOther);
-            printTest("3D Intersection points equal", result.pointOnThis == result.pointOnOther);
-        }
+        // Line3 l3_1(Point3{0.0, 0.0, 0.0}, Vec3{1.0, 0.0, 0.0});
+        // Line3 l3_2(Point3{0.0, 0.0, 0.0}, Vec3{0.0, 1.0, 0.0});
+        // Line3::LineIntersection result = l3_1.intersect(l3_2);
+        // printTest("3D Lines intersect (at origin)", result.intersects);
+        // if (result.intersects) {
+        //     printTest("3D Intersection point on line 1", result.pointOnThis == result.pointOnThis);
+        //     printTest("3D Intersection point on line 2", result.pointOnOther == result.pointOnOther);
+        //     printTest("3D Intersection points equal", result.pointOnThis == result.pointOnOther);
+        // }
 
         // Skew lines (no intersection)
-        Line3 l3_3(Point3{0.0, 0.0, 0.0}, Vec3{1.0, 0.0, 0.0});
-        Line3 l3_4(Point3{0.0, 1.0, 1.0}, Vec3{0.0, 1.0, 0.0});
-        result = l3_3.intersect(l3_4);
-        printTest("3D Skew lines do not intersect", !result.intersects);
+        // Line3 l3_3(Point3{0.0, 0.0, 0.0}, Vec3{1.0, 0.0, 0.0});
+        // Line3 l3_4(Point3{0.0, 1.0, 1.0}, Vec3{0.0, 1.0, 0.0});
+        // result = l3_3.intersect(l3_4);
+        // printTest("3D Skew lines do not intersect", !result.intersects);
     }
     
     // --- 4D Tests ---
@@ -128,21 +129,21 @@ inline void testLine() {
 
     // --- 4D Intersection Tests ---
     {
-        Line4 l4_1(Point4{0.0f, 0.0f, 0.0f, 0.0f}, Vec4{1.0f, 0.0f, 0.0f, 0.0f});
-        Line4 l4_2(Point4{0.0f, 0.0f, 0.0f, 0.0f}, Vec4{0.0f, 1.0f, 0.0f, 0.0f});
-        Line4::LineIntersection result = l4_1.intersect(l4_2);
-        printTest("4D Lines intersect (at origin)", result.intersects);
-        if (result.intersects) {
-            printTest("4D Intersection point on line 1", result.pointOnThis == result.pointOnThis);
-            printTest("4D Intersection point on line 2", result.pointOnOther == result.pointOnOther);
-            printTest("4D Intersection points equal", result.pointOnThis == result.pointOnOther);
-        }
+        // Line4 l4_1(Point4{0.0f, 0.0f, 0.0f, 0.0f}, Vec4{1.0f, 0.0f, 0.0f, 0.0f});
+        // Line4 l4_2(Point4{0.0f, 0.0f, 0.0f, 0.0f}, Vec4{0.0f, 1.0f, 0.0f, 0.0f});
+        // Line4::LineIntersection result = l4_1.intersect(l4_2);
+        // printTest("4D Lines intersect (at origin)", result.intersects);
+        // if (result.intersects) {
+        //     printTest("4D Intersection point on line 1", result.pointOnThis == result.pointOnThis);
+        //     printTest("4D Intersection point on line 2", result.pointOnOther == result.pointOnOther);
+        //     printTest("4D Intersection points equal", result.pointOnThis == result.pointOnOther);
+        // }
 
         // Parallel lines in 4D
-        Line4 l4_3(Point4{0.0f, 0.0f, 0.0f, 0.0f}, Vec4{1.0f, 0.0f, 0.0f, 0.0f});
-        Line4 l4_4(Point4{0.0f, 1.0f, 0.0f, 0.0f}, Vec4{1.0f, 0.0f, 0.0f, 0.0f});
-        result = l4_3.intersect(l4_4);
-        printTest("4D Parallel lines do not intersect", !result.intersects);
+        // Line4 l4_3(Point4{0.0f, 0.0f, 0.0f, 0.0f}, Vec4{1.0f, 0.0f, 0.0f, 0.0f});
+        // Line4 l4_4(Point4{0.0f, 1.0f, 0.0f, 0.0f}, Vec4{1.0f, 0.0f, 0.0f, 0.0f});
+        // result = l4_3.intersect(l4_4);
+        // printTest("4D Parallel lines do not intersect", !result.intersects);
     }
     
     // --- 5D Tests ---
@@ -162,21 +163,21 @@ inline void testLine() {
 
     // --- 5D Intersection Tests ---
     {
-        Line5 l5_1(Point5{0.0, 0.0, 0.0, 0.0, 0.0}, Vec5{1.0, 0.0, 0.0, 0.0, 0.0});
-        Line5 l5_2(Point5{0.0, 0.0, 0.0, 0.0, 0.0}, Vec5{0.0, 1.0, 0.0, 0.0, 0.0});
-        Line5::LineIntersection result = l5_1.intersect(l5_2);
-        printTest("5D Lines intersect (at origin)", result.intersects);
-        if (result.intersects) {
-            printTest("5D Intersection point on line 1", result.pointOnThis == result.pointOnThis);
-            printTest("5D Intersection point on line 2", result.pointOnOther == result.pointOnOther);
-            printTest("5D Intersection points equal", result.pointOnThis == result.pointOnOther);
-        }
+        // Line5 l5_1(Point5{0.0, 0.0, 0.0, 0.0, 0.0}, Vec5{1.0, 0.0, 0.0, 0.0, 0.0});
+        // Line5 l5_2(Point5{0.0, 0.0, 0.0, 0.0, 0.0}, Vec5{0.0, 1.0, 0.0, 0.0, 0.0});
+        // Line5::LineIntersection result = l5_1.intersect(l5_2);
+        // printTest("5D Lines intersect (at origin)", result.intersects);
+        // if (result.intersects) {
+        //     printTest("5D Intersection point on line 1", result.pointOnThis == result.pointOnThis);
+        //     printTest("5D Intersection point on line 2", result.pointOnOther == result.pointOnOther);
+        //     printTest("5D Intersection points equal", result.pointOnThis == result.pointOnOther);
+        // }
 
         // Parallel lines in 5D
-        Line5 l5_3(Point5{0.0, 0.0, 0.0, 0.0, 0.0}, Vec5{1.0, 0.0, 0.0, 0.0, 0.0});
-        Line5 l5_4(Point5{0.0, 1.0, 0.0, 0.0, 0.0}, Vec5{1.0, 0.0, 0.0, 0.0, 0.0});
-        result = l5_3.intersect(l5_4);
-        printTest("5D Parallel lines do not intersect", !result.intersects);
+        // Line5 l5_3(Point5{0.0, 0.0, 0.0, 0.0, 0.0}, Vec5{1.0, 0.0, 0.0, 0.0, 0.0});
+        // Line5 l5_4(Point5{0.0, 1.0, 0.0, 0.0, 0.0}, Vec5{1.0, 0.0, 0.0, 0.0, 0.0});
+        // result = l5_3.intersect(l5_4);
+        // printTest("5D Parallel lines do not intersect", !result.intersects);
     }
     
     std::cout << "\nTesting Line Transform Logic\n";
@@ -238,8 +239,7 @@ inline void testLine() {
     printTest("Line transform (rotation about pivot) direction", Euclid::equalWithinTolerance(l_rotated.direction(), expectedDirRot));
     
     testLineMeasureAngle();
+    testLineIntersection();
     
 }
     
-
-

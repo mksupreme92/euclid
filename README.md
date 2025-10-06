@@ -12,56 +12,58 @@
 
 - [x] `Point`
 - [x] `Line`
-- [x] `Curve`
+- [ ] `Curve`
+    - [x] Parametric Curve
+    - [ ] NURBS Curve
 - [x] `Plane`
 - [x] `Face`
-- [x] `Surface` 
+- [ ] `Surface`
+    - [x] Parametric Surface
+    - [ ] NURBS Surface
 - [x] `Volume` ((ℝ³ → ℝⁿ))
-
-### Intersection Logic  
-- [x] `Point - Point`
-- [ ] `Point - Line`
-- [ ] `Point - Curve`
-- [ ] `Point - Plane`
-- [ ] `Point - Face`
-- [ ] `Point - Surface`
-- [ ] `Point - Volume`
-
-- [x] `Line - Line`
-- [ ] `Line - Curve`
-- [ ] `Line - Plane`
-- [ ] `Line - Face`
-- [ ] `Line - Surface`
-- [ ] `Line - Volume`
-
-- [ ] `Curve - Curve`
-- [ ] `Curve - Plane`
-- [ ] `Curve - Face`
-- [ ] `Curve - Surface`
-- [ ] `Curve - Volume`
-
-- [ ] `Plane - Plane`
-- [ ] `Plane - Face`
-- [ ] `Plane - Surface`
-- [ ] `Plane - Volume`
-
-- [ ] `Face - Face`
-- [ ] `Face - Surface`
-- [ ] `Face - Volume`
-
-- [ ] `Surface - Surface`
-- [ ] `Surface - Volume`
-
-- [ ] `Volume - Volume`
-
-
 
 
 ## 🧮 Operations on Geometry Primitives
 - [x] `Transformations` - Affine, Linear, Orthagonal, Special Orthagonal, Projective
-- [ ] `Boolean Operations` — Boolean operations (union, subtract, intersect)
-- [ ] `Collisions` — Collision and intersection logic
 
-## ✒️ Elementa Programing Language API
+### Intersections (Required for NURBS Support)
 
-- [ ] `Elementa` —  layer for input to kernel 
+#### Point Intersections
+- [x] `Point - Point`
+- [x] `Point - Line` → returns closest point
+- [ ] `Point - Segment` → returns closest point
+- [x] `Point - Plane` → returns projected point
+- [ ] `Point - Face` → returns projected point
+- [ ] `Point - Curve` → returns closest point on curve
+- [ ] `Point - Surface` → returns projected point on surface
+
+#### Line Intersections
+- [x] `Line - Line` → returns point (or line if coincident)
+- [ ] `Line - Segment` → returns point (or segment if colinear)
+- [x] `Line - Plane` → returns point or line
+- [ ] `Line - Face` → returns point or segment
+- [ ] `Line - Curve` → returns points of intersection
+- [ ] `Line - Surface` → returns point(s) of intersection
+
+#### Segment Intersections
+- [ ] `Segment - Segment` → returns point (or segment if colinear)
+- [ ] `Segment - Plane` → returns point or segment
+- [ ] `Segment - Face` → returns point or segment
+- [ ] `Segment - Curve` → returns points of intersection
+- [ ] `Segment - Surface` → returns point(s) of intersection
+
+#### Curve Intersections
+- [ ] `Curve - Curve` → returns points or overlapping segments
+- [ ] `Curve - Surface` → returns curve(s) of intersection
+
+#### Plane Intersections
+- [ ] `Plane - Plane` → returns line (or plane if coincident)
+- [ ] `Plane - Face` → returns line (or face if coplanar)
+- [ ] `Plane - Surface` → returns curve of intersection
+
+#### Face Intersections
+- [ ] `Face - Face` → returns line (or face if coplanar)
+- [ ] `Face - Surface` → returns curve(s) of intersection
+
+#### Surface Intersection
+- [ ] `Surface - Surface` → returns curve(s) of intersection
