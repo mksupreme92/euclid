@@ -281,6 +281,15 @@ PointIntersectionResult<T, N> intersect(const Point<T, N>& p, const Curve<T, N>&
     }
 }
 
+// Added reverse overload for Curve-Point intersection
+template <typename T, int N>
+PointIntersectionResult<T, N> intersect(
+    const Curve<T, N>& c, const Point<T, N>& p,
+    const Tolerance& tol = Tolerance(), int N_samples = -1)
+{
+    return intersect(p, c, tol, N_samples);
+}
+
 // ======================================================
 // Point–Surface Intersection (projection / closest point search)
 // ======================================================
@@ -456,3 +465,13 @@ PointIntersectionResult<T, N> intersect(const Face<T, N>& f, const Point<T, N>& 
 }
 
 } // namespace Euclid::Geometry
+
+// Added reverse overload for Surface-Point intersection
+template <typename T, int N>
+Euclid::Geometry::PointIntersectionResult<T, N> intersect(
+    const Euclid::Geometry::Surface<T, N>& s,
+    const Euclid::Geometry::Point<T, N>& p,
+    const Euclid::Tolerance& tol = Euclid::Tolerance())
+{
+    return intersect(p, s, tol);
+}

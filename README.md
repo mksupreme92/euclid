@@ -39,11 +39,11 @@
 
 #### Line Intersections
 - [x] `Line - Line` → returns point (or line if coincident)
-- [ ] `Line - Segment` → returns point (or segment if colinear)
-- [ ] **`Line - Curve` → returns points of intersection**
+- [x] `Line - Segment` → returns point (or segment if colinear)
+- [x] `Line - Curve` → returns points of intersection
 - [x] `Line - Plane` → returns point or line
-- [ ] `Line - Face` → returns point or segment
-- [ ] **`Line - Surface` → returns point(s) of intersection**
+- [x] `Line - Face` → returns point or segment
+- [x] `Line - Surface` → returns point(s) of intersection
 
 #### Segment Intersections
 - [ ] `Segment - Segment` → returns point (or segment if colinear)
