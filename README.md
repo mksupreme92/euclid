@@ -31,30 +31,32 @@
 #### Point Intersections
 - [x] `Point - Point`
 - [x] `Point - Line` → returns closest point
-- [ ] `Point - Segment` → returns closest point
+- [x] `Point - Segment` → returns closest point
+- [x] `Point - Curve` → returns closest point on curve
 - [x] `Point - Plane` → returns projected point
-- [ ] `Point - Face` → returns projected point
-- [ ] `Point - Curve` → returns closest point on curve
-- [ ] `Point - Surface` → returns projected point on surface
+- [x] `Point - Face` → returns projected point
+- [x] `Point - Surface` → returns projected point on surface
 
 #### Line Intersections
 - [x] `Line - Line` → returns point (or line if coincident)
 - [ ] `Line - Segment` → returns point (or segment if colinear)
+- [ ] **`Line - Curve` → returns points of intersection**
 - [x] `Line - Plane` → returns point or line
 - [ ] `Line - Face` → returns point or segment
-- [ ] `Line - Curve` → returns points of intersection
-- [ ] `Line - Surface` → returns point(s) of intersection
+- [ ] **`Line - Surface` → returns point(s) of intersection**
 
 #### Segment Intersections
 - [ ] `Segment - Segment` → returns point (or segment if colinear)
+- [ ] `Segment - Curve` → returns points of intersection
 - [ ] `Segment - Plane` → returns point or segment
 - [ ] `Segment - Face` → returns point or segment
-- [ ] `Segment - Curve` → returns points of intersection
 - [ ] `Segment - Surface` → returns point(s) of intersection
 
 #### Curve Intersections
-- [ ] `Curve - Curve` → returns points or overlapping segments
-- [ ] `Curve - Surface` → returns curve(s) of intersection
+- [ ] **`Curve - Curve` → returns points or overlapping segments**
+- [ ] `Curve - Plane`
+- [ ] `Curve - Face`
+- [ ] **`Curve - Surface` → returns curve(s) of intersection**
 
 #### Plane Intersections
 - [ ] `Plane - Plane` → returns line (or plane if coincident)
@@ -66,4 +68,4 @@
 - [ ] `Face - Surface` → returns curve(s) of intersection
 
 #### Surface Intersection
-- [ ] `Surface - Surface` → returns curve(s) of intersection
+- [ ] **`Surface - Surface` → returns curve(s) of intersection**
