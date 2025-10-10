@@ -10,7 +10,7 @@ namespace Euclid::Geometry {
 template<typename T, int N>
 class Face {
 public:
-    using PointType = Point<T, N>;            // Mirror Plane API
+    using PointType = Point<T, N>;            
     using VectorType = Eigen::Matrix<T, N, 1>;
     using Points = std::vector<PointType>;
 
