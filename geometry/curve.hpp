@@ -1,9 +1,8 @@
-
-
 #pragma once
 #include <functional>
 #include <utility>
 #include "point.hpp"
+#include "tolerance.hpp"
 #include "algebra/transform.hpp"
 
 namespace Euclid::Geometry {
@@ -21,6 +20,13 @@ public:
     PointType evaluate(Scalar t) const {
         return curveFunc_(t);
     }
+
+    // Evaluate the derivative of the curve at parameter t (finite difference)
+    Eigen::Matrix<Scalar, Dim, 1> evaluateDerivative(Scalar t, const Tolerance& tol) const {
+        Scalar h = tol.evaluateEpsilon((curveFunc_(t)).coords.norm());
+        return (curveFunc_(t + h).coords - curveFunc_(t - h).coords) / (2.0 * h);
+    }
+
 
     // Curve parameter domain
     std::pair<Scalar, Scalar> domain() const { return domain_; }

@@ -89,10 +89,18 @@ PointIntersectionResult<T, N> intersect(const Point<T, N>& p, const Segment<T, N
     T apNorm = ap.norm();
     T bpNorm = (x - b).norm();
 
-    // Check if point is colinear with segment endpoints
-    // (Check if area of parallelogram is small, i.e., vectors are linearly dependent)
-    T crossNorm = (ab.cross(ap)).norm();
-    bool colinear = Euclid::equalWithinTolerance(crossNorm, 0.0, tol, abNorm + apNorm);
+    bool colinear = false;
+    if constexpr (N == 3) {
+        // Use cross product norm for 3D
+        T crossNorm = (ab.cross(ap)).norm();
+        colinear = Euclid::equalWithinTolerance(crossNorm, 0.0, tol, abNorm + apNorm);
+    } else {
+        // Use projection residual for ND (including 2D)
+        Vec proj = ab * (ab.dot(ap) / ab.squaredNorm());
+        Vec residual = ap - proj;
+        T residualNorm = residual.norm();
+        colinear = residualNorm <= tol.evaluateEpsilon(N) * (abNorm + apNorm);
+    }
 
     // Check if projection is within segment bounds
     T dot = ab.dot(ap);
@@ -442,9 +450,16 @@ PointIntersectionResult<T, N> intersect(const Point<T, N>& p, const Face<T, N>& 
         const Vec& v_next = f.vertices[(i + 1) % f.vertices.size()].coords;
         Vec edge = v_next - v_i;
         Vec toProj = projected - v_i;
-        Vec cross = edge.cross(toProj);
-        T dot = cross.dot(n);
-        if (dot < -eps) {
+        T crossMag;
+        if constexpr (N == 2) {
+            crossMag = edge[0] * toProj[1] - edge[1] * toProj[0];
+        } else if constexpr (N == 3) {
+            crossMag = edge.cross(toProj).dot(n);
+        } else {
+            Eigen::Matrix<T, N, 1> proj = toProj - (edge.dot(toProj) / edge.squaredNorm()) * edge;
+            crossMag = n.dot(proj);
+        }
+        if (crossMag < -eps) {
             inside = false;
             break;
         }

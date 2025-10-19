@@ -2,6 +2,7 @@
 #include "geometry/segment.hpp"
 #include "algebra/transform.hpp"
 #include "test_utilities.hpp"
+#include "test_segment_intersection.hpp"
 
 using namespace Euclid::Geometry;
 using namespace Euclid::Algebra;
@@ -96,4 +97,7 @@ inline void testSegment() {
     seg3Rot.applyTransform(rot);
     printTest("3D Segment transform start", seg3Rot.start == Point3{0.0,0.0,0.0});
     printTest("3D Segment transform end", seg3Rot.end == Point3{-1.0,0.0,0.0});
+    
+    
+    testSegmentIntersection();
 }
