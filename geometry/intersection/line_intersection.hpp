@@ -6,8 +6,73 @@
 #include <optional>
 #include <vector>
 #include <string>
+#include <algorithm>
+
+#include <tuple>
+#include <iostream>
 
 namespace Euclid::Geometry {
+
+// ======================================================
+// Ray–AABB intersection helper (used for BVH patch filtering)
+// ======================================================
+template <typename T, int N>
+inline bool rayIntersectsAABB(const Eigen::Matrix<T, N, 1>& rayOrigin,
+                              const Eigen::Matrix<T, N, 1>& rayDir,
+                              const Eigen::Matrix<T, N, 1>& aabbMin,
+                              const Eigen::Matrix<T, N, 1>& aabbMax) {
+    T tmin = -std::numeric_limits<T>::infinity();
+    T tmax =  std::numeric_limits<T>::infinity();
+    for (int i = 0; i < N; ++i) {
+        if (std::abs(rayDir[i]) < Tolerance().evaluateEpsilon(std::max(aabbMax[i] - aabbMin[i], (T)1))) {
+            if (rayOrigin[i] < aabbMin[i] || rayOrigin[i] > aabbMax[i])
+                return false; // Parallel and outside slab
+        } else {
+            T invD = T(1) / rayDir[i];
+            T t0 = (aabbMin[i] - rayOrigin[i]) * invD;
+            T t1 = (aabbMax[i] - rayOrigin[i]) * invD;
+            if (t0 > t1) std::swap(t0, t1);
+            tmin = std::max(tmin, t0);
+            tmax = std::min(tmax, t1);
+            if (tmax < tmin) return false;
+        }
+    }
+    return tmax >= tmin;
+}
+
+// Ray–AABB interval helper (returns whether hit, and [t_enter, t_exit])
+template <typename T, int N>
+inline std::tuple<bool, T, T> rayAABBInterval(const Eigen::Matrix<T, N, 1>& rayOrigin,
+                                              const Eigen::Matrix<T, N, 1>& rayDir,
+                                              const Eigen::Matrix<T, N, 1>& aabbMin,
+                                              const Eigen::Matrix<T, N, 1>& aabbMax,
+                                              const Tolerance& tol,
+                                              T world_scale)
+{
+    T tmin = -std::numeric_limits<T>::infinity();
+    T tmax =  std::numeric_limits<T>::infinity();
+    const T eps = tol.evaluateEpsilon(std::max(world_scale, T(1)));
+    for (int i = 0; i < N; ++i) {
+        const T d = rayDir[i];
+        const T o = rayOrigin[i];
+        const T mn = aabbMin[i];
+        const T mx = aabbMax[i];
+        if (std::abs(d) < eps) {
+            // Ray parallel to slab; reject if origin not within
+            if (o < mn - eps || o > mx + eps) return {false, T(0), T(0)};
+            continue;
+        }
+        const T invD = T(1) / d;
+        T t0 = (mn - o) * invD;
+        T t1 = (mx - o) * invD;
+        if (t0 > t1) std::swap(t0, t1);
+        tmin = std::max(tmin, t0);
+        tmax = std::min(tmax, t1);
+        if (tmax < tmin) return {false, T(0), T(0)};
+    }
+    // Always return the interval, even if it is behind the origin (full line support)
+    return {true, tmin, tmax};
+}
 
 // ======================================================
 // Line Intersection Result
@@ -118,72 +183,75 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& l1, const Line<T, N>& l
         return result;
     }
 
-    // Generic ND implementation: check if lines are parallel or coincident
-    auto p1 = l1.point1().coords;
-    auto d1 = l1.direction().normalized();
-    auto p2 = l2.point1().coords;
-    auto d2 = l2.direction().normalized();
-    auto diff = p2 - p1;
+    // Generic ND implementation: for N != 2 and N != 3
+    if constexpr (N != 2 && N != 3) {
+        // Check if lines are parallel or coincident
+        auto p1 = l1.point1().coords;
+        auto d1 = l1.direction().normalized();
+        auto p2 = l2.point1().coords;
+        auto d2 = l2.direction().normalized();
+        auto diff = p2 - p1;
 
-    T dot_dir = d1.dot(d2);
-    T eps = tol.evaluateEpsilon(scale);
+        T dot_dir = d1.dot(d2);
+        T eps = tol.evaluateEpsilon(scale);
 
-    if (std::abs(std::abs(dot_dir) - 1) < eps) {
-        // Lines are parallel, check if coincident
-        T dist = diff.norm();
-        if (dist < eps) {
-            // Lines are coincident
-            result.intersects = true;
-            result.lines = {l1};
-            result.description = "Lines are coincident";
-        } else {
-            // Check if diff is along the direction line (collinear)
-            T proj = diff.dot(d1);
-            Point<T, N> projected_point = Point<T, N>(p1 + proj * d1);
-            if ((projected_point.coords - p2).norm() < eps) {
+        if (std::abs(std::abs(dot_dir) - 1) < eps) {
+            // Lines are parallel, check if coincident
+            T dist = diff.norm();
+            if (dist < eps) {
+                // Lines are coincident
                 result.intersects = true;
                 result.lines = {l1};
                 result.description = "Lines are coincident";
             } else {
-                result.description = "Lines are parallel";
+                // Check if diff is along the direction line (collinear)
+                T proj = diff.dot(d1);
+                Point<T, N> projected_point = Point<T, N>(p1 + proj * d1);
+                if ((projected_point.coords - p2).norm() < eps) {
+                    result.intersects = true;
+                    result.lines = {l1};
+                    result.description = "Lines are coincident";
+                } else {
+                    result.description = "Lines are parallel";
+                }
             }
+            return result;
         }
+
+        // For ND, solve for intersection parameters if possible
+        // Using least squares to solve for parameters t1 and t2 where:
+        // p1 + t1*d1 = p2 + t2*d2
+
+        // Construct system: t1*d1 - t2*d2 = p2 - p1
+        // Rewrite as A * [t1; t2] = b, where A = [d1, -d2], b = diff
+
+        Eigen::Matrix<T, N, 2> A;
+        for (int i = 0; i < N; ++i) {
+            A(i, 0) = d1[i];
+            A(i, 1) = -d2[i];
+        }
+        Eigen::Matrix<T, N, 1> b;
+        for (int i = 0; i < N; ++i) {
+            b(i, 0) = diff[i];
+        }
+
+        // Solve least squares
+        Eigen::Matrix<T, 2, 1> t = A.colPivHouseholderQr().solve(b);
+
+        Point<T, N> pt1 = Point<T, N>(p1 + t(0, 0) * d1);
+        Point<T, N> pt2 = Point<T, N>(p2 + t(1, 0) * d2);
+        T dist = (pt1 - pt2).norm();
+
+        if (dist > tol.evaluateEpsilon(dist)) {
+            result.description = "Lines do not intersect";
+            return result;
+        }
+
+        result.intersects = true;
+        result.points = {pt1};
+        result.description = "Lines intersect at a point";
         return result;
     }
-
-    // For ND, solve for intersection parameters if possible
-    // Using least squares to solve for parameters t1 and t2 where:
-    // p1 + t1*d1 = p2 + t2*d2
-
-    // Construct system: t1*d1 - t2*d2 = p2 - p1
-    // Rewrite as A * [t1; t2] = b, where A = [d1, -d2], b = diff
-
-    Eigen::Matrix<T, N, 2> A;
-    for (int i = 0; i < N; ++i) {
-        A(i, 0) = d1[i];
-        A(i, 1) = -d2[i];
-    }
-    Eigen::Matrix<T, 2, 1> b;
-    for (int i = 0; i < N; ++i) {
-        b(i, 0) = diff[i];
-    }
-
-    // Solve least squares
-    Eigen::Matrix<T, 2, 1> t = A.colPivHouseholderQr().solve(b);
-
-    Point<T, N> pt1 = Point<T, N>(p1 + t(0, 0) * d1);
-    Point<T, N> pt2 = Point<T, N>(p2 + t(1, 0) * d2);
-    T dist = (pt1 - pt2).norm();
-
-    if (dist > tol.evaluateEpsilon(dist)) {
-        result.description = "Lines do not intersect";
-        return result;
-    }
-
-    result.intersects = true;
-    result.points = {pt1};
-    result.description = "Lines intersect at a point";
-    return result;
 }
 
 // ======================================================
@@ -322,159 +390,371 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Curve<T, N>
 
 
 // ======================================================
-// Line–Surface Intersection
+// Public utility to precompute reusable (u,v) samples for repeated Line–Surface queries.
+// ======================================================
+template <typename T, int N>
+std::vector<std::pair<T, T>> prepareSurfaceLineSamples(
+    const Surface<T, N>& s,
+    const Tolerance& tol = Tolerance(),
+    int max_grid = -1)
+{
+    return s.generateCandidateSamples(tol, max_grid);
+}
+
+// Overload that uses precomputed samples (avoids rebuilding/visiting BVH for each line).
+template <typename T, int N>
+LineIntersectionResult<T, N> intersect(
+    const Line<T, N>& line,
+    const Surface<T, N>& s,
+    const std::vector<std::pair<T, T>>& samples,
+    const Tolerance& tol = Tolerance())
+{
+    LineIntersectionResult<T, N> result;
+    if (samples.empty()) { result.description = "No candidate samples provided"; return result; }
+
+    auto domain = s.surfaceDomain;
+    T u0 = domain.first.first;
+    T u1 = domain.first.second;
+    T v0 = domain.second.first;
+    T v1 = domain.second.second;
+    if (u1 <= u0 || v1 <= v0) { result.description = "Empty surface domain"; return result; }
+
+    // Precompute derivative steps once (cached inside Newton loop scope)
+    T u_extent = std::abs(u1 - u0);
+    T v_extent = std::abs(v1 - v0);
+    T extent   = std::max(u_extent, v_extent);
+    T eps      = tol.evaluateEpsilon(extent);
+
+    const auto& P0  = line.point1().coords;
+    const auto  dir = line.direction();
+    T dir_norm2     = dir.squaredNorm();
+
+    // Scale for tolerance checks
+    T scale = 0;
+    for (const auto& samp : samples) {
+        Point<T, N> spt = s.evaluate(samp.first, samp.second);
+        scale = std::max(scale, spt.coords.norm());
+    }
+    T coarse_thresh = std::max(tol.evaluateEpsilon(scale), tol.paramTol * extent);
+
+    struct Candidate { T u, v, t, dist; };
+    std::vector<Candidate> candidates;
+    candidates.reserve(samples.size());
+
+    T best_dist = std::numeric_limits<T>::infinity();
+    size_t best_idx = 0;
+    for (size_t i = 0; i < samples.size(); ++i) {
+        T uu = samples[i].first;
+        T vv = samples[i].second;
+        Point<T, N> spt = s.evaluate(uu, vv);
+        T proj_t = dir.dot(spt.coords - P0) / dir_norm2;
+        Point<T, N> lpt(P0 + proj_t * dir);
+        T dist = (spt - lpt).norm();
+        if (dist <= coarse_thresh) {
+            candidates.push_back({uu, vv, proj_t, dist});
+        }
+        if (dist < best_dist) { best_dist = dist; best_idx = i; }
+    }
+    if (candidates.empty()) {
+        T uu = samples[best_idx].first;
+        T vv = samples[best_idx].second;
+        Point<T, N> spt = s.evaluate(uu, vv);
+        T proj_t = dir.dot(spt.coords - P0) / dir_norm2;
+        T dist = (spt - Point<T, N>(P0 + proj_t * dir)).norm();
+        candidates.push_back({uu, vv, proj_t, dist});
+    }
+
+    // Cache derivative step sizes once (per call), not per Newton iteration
+    const T uh = std::max(tol.paramTol * u_extent, std::numeric_limits<T>::epsilon() * (T)10);
+    const T vh = std::max(tol.paramTol * v_extent, std::numeric_limits<T>::epsilon() * (T)10);
+
+    std::vector<Eigen::Matrix<T, N, 1>> intersection_coords;
+    intersection_coords.reserve(candidates.size());
+
+    int max_iters = 30;
+    T alpha = T(1.0);
+
+    for (const auto& cand : candidates) {
+        T u = cand.u, v = cand.v, t = cand.t;
+        T prevDist = cand.dist;
+
+        for (int iter = 0; iter < max_iters; ++iter) {
+            Point<T, N> Spt = s.evaluate(u, v);
+
+            // Use cached uh, vh — only clamp the evaluation points
+            T up = std::min(u1, u + uh);
+            T um = std::max(u0, u - uh);
+            T vp = std::min(v1, v + vh);
+            T vm = std::max(v0, v - vh);
+
+            Point<T, N> Sup = s.evaluate(up, v);
+            Point<T, N> Sum = s.evaluate(um, v);
+            Point<T, N> Svp = s.evaluate(u, vp);
+            Point<T, N> Svm = s.evaluate(u, vm);
+
+            Eigen::Matrix<T, N, 1> Su = (Sup.coords - Sum.coords) / (up - um);
+            Eigen::Matrix<T, N, 1> Sv = (Svp.coords - Svm.coords) / (vp - vm);
+
+            Eigen::Matrix<T, N, 1> R;
+            for (int k = 0; k < N; ++k) R(k, 0) = Spt.coords[k] - (P0[k] + t * dir[k]);
+
+            Eigen::Matrix<T, N, 3> J;
+            for (int k = 0; k < N; ++k) { J(k,0)=Su[k]; J(k,1)=Sv[k]; J(k,2)=-dir[k]; }
+
+            Eigen::Matrix<T, 3, 1> delta;
+            if constexpr (N == 3) {
+                Eigen::FullPivLU<Eigen::Matrix<T, 3, 3>> lu(J);
+                if (lu.isInvertible()) {
+                    delta = lu.solve(-R);
+                } else {
+                    Eigen::Matrix<T, 3, 3> JTJ = J.transpose() * J;
+                    Eigen::Matrix<T, 3, 1> JTR = J.transpose() * R;
+                    T damping = tol.evaluateEpsilon(std::max(scale, (T)1));
+                    for (int d = 0; d < 3; ++d) JTJ(d, d) += damping;
+                    delta = JTJ.colPivHouseholderQr().solve(-JTR);
+                }
+            } else {
+                delta = J.colPivHouseholderQr().solve(-R);
+            }
+
+            T du = delta(0,0), dv = delta(1,0), dt = delta(2,0);
+            u += alpha * du; v += alpha * dv; t += alpha * dt;
+
+            // clamp to domain
+            if (u < u0) u = u0; if (u > u1) u = u1;
+            if (v < v0) v = v0; if (v > v1) v = v1;
+
+            Point<T, N> Snew = s.evaluate(u, v);
+            Point<T, N> Lnew(P0 + t * dir);
+            T dist = (Snew - Lnew).norm();
+            if (std::abs(dist - prevDist) < eps * (T)0.5) break;
+            prevDist = dist;
+        }
+
+        Point<T, N> Sfinal = s.evaluate(u, v);
+        Point<T, N> Lfinal(P0 + t * dir);
+        T finalDist = (Sfinal - Lfinal).norm();
+        if (finalDist <= tol.evaluateEpsilon(std::max(scale, (T)1))) {
+            intersection_coords.push_back((Sfinal.coords + Lfinal.coords) * (T)0.5);
+        }
+    }
+
+    // Deduplicate
+    std::vector<Point<T, N>> intersections;
+    std::vector<bool> taken(intersection_coords.size(), false);
+    T dedup_tol = tol.evaluateEpsilon(std::max(scale, (T)1));
+    for (size_t i = 0; i < intersection_coords.size(); ++i) {
+        if (taken[i]) continue;
+        intersections.emplace_back(intersection_coords[i]);
+        for (size_t j = i + 1; j < intersection_coords.size(); ++j) {
+            if (!taken[j] && (intersection_coords[i] - intersection_coords[j]).norm() < dedup_tol) {
+                taken[j] = true;
+            }
+        }
+    }
+
+    if (!intersections.empty()) {
+        result.intersects = true;
+        result.points = std::move(intersections);
+        result.description = "Line intersects surface (precomputed BVH samples)";
+    } else {
+        result.description = "Line does not intersect surface";
+    }
+    return result;
+}
+
+// ======================================================
+// Line–Surface Intersection (with BVH patch filtering)
+// ======================================================
+// ======================================================
+// Line–Surface Intersection (adaptive ray-marching + Newton refinement)
 // ======================================================
 template <typename T, int N>
 LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, N>& s,
                                       const Tolerance& tol = Tolerance(), int max_grid = -1) {
     LineIntersectionResult<T, N> result;
-    // Only 3D surfaces supported
-    if constexpr (N != 3) {
-        result.description = "Line–Surface only implemented for 3D";
-        return result;
-    }
 
-    // domain
-    auto domain = s.surfaceDomain; // ((u0,u1),(v0,v1))
-    T u0 = domain.first.first;
-    T u1 = domain.first.second;
-    T v0 = domain.second.first;
-    T v1 = domain.second.second;
-    if (u1 <= u0 || v1 <= v0) return result;
-
-    T u_extent = std::abs(u1 - u0);
-    T v_extent = std::abs(v1 - v0);
-    T extent = std::max(u_extent, v_extent);
-    T eps = tol.evaluateEpsilon(extent);
-
-    int M = max_grid > 0 ? max_grid : std::min(200, std::max(20, static_cast<int>((int)((u_extent + v_extent) / std::max(eps, (T)1e-9)) * 5)));
-
-    // sample key points: corners and center
-    std::vector<std::pair<T, T>> samples;
-    samples.reserve(M * M);
-    samples.push_back({u0, v0});
-    samples.push_back({u0, v1});
-    samples.push_back({u1, v0});
-    samples.push_back({u1, v1});
-    samples.push_back({(u0 + u1) / 2, (v0 + v1) / 2});
-
-    for (int i = 0; i < M; ++i) {
-        for (int j = 0; j < M; ++j) {
-            T uu = u0 + (u1 - u0) * static_cast<T>(i) / static_cast<T>(M - 1);
-            T vv = v0 + (v1 - v0) * static_cast<T>(j) / static_cast<T>(M - 1);
-            // skip duplicates
-            if ((std::abs(uu - u0) < eps && std::abs(vv - v0) < eps) ||
-                (std::abs(uu - u0) < eps && std::abs(vv - v1) < eps) ||
-                (std::abs(uu - u1) < eps && std::abs(vv - v0) < eps) ||
-                (std::abs(uu - u1) < eps && std::abs(vv - v1) < eps) ||
-                (std::abs(uu - (u0+u1)/2) < eps && std::abs(vv - (v0+v1)/2) < eps)) continue;
-            samples.push_back({uu, vv});
-        }
-    }
-
+    // Get some scale for tolerance
     const auto& P0 = line.point1().coords;
     const auto dir = line.direction();
+    T dir_norm = dir.norm();
+    if (dir_norm == 0) {
+        result.description = "Line direction is zero";
+        return result;
+    }
+    const auto dir_hat = dir / dir_norm;
+    // Hint the surface BVH/normal orientation with the ray direction for stable signed distances
+    s.setBVHDirectionHint(dir_hat);
 
-    T bestDist = std::numeric_limits<T>::infinity();
-    T best_u = u0;
-    T best_v = v0;
-    Point<T, 3> best_spt = s.evaluate(u0, v0);
+    // Estimate extent using surface bounding box if available, else use domain extents
+    auto domain = s.surfaceDomain;
+    T u0 = domain.first.first, u1 = domain.first.second;
+    T v0 = domain.second.first, v1 = domain.second.second;
+    T u_extent = std::abs(u1 - u0);
+    T v_extent = std::abs(v1 - v0);
+    T surface_extent = std::max(u_extent, v_extent);
+    // Try to get a bounding box (if implemented for Surface)
+    T t_min = -10 * surface_extent, t_max = 10 * surface_extent;
 
-    // coarse sampling
-    for (size_t i = 0; i < samples.size(); ++i) {
-        T uu = samples[i].first;
-        T vv = samples[i].second;
-        Point<T, 3> spt = s.evaluate(uu, vv);
-        // project onto line
-        T proj_t = dir.dot(spt.coords - P0) / dir.squaredNorm();
-        Point<T, 3> lpt(P0 + proj_t * dir);
-        T dist = (spt - lpt).norm();
-        if (dist < bestDist) {
-            bestDist = dist;
-            best_u = uu;
-            best_v = vv;
-            best_spt = spt;
+    // Hint the surface BVH/normal orientation with the ray direction for stable signed distances
+    s.setBVHDirectionHint(dir_hat);
+
+    // Refine BVH w.r.t. BOTH directions of the infinite line so patches behind P0 are not culled.
+    // This ensures torus-style 4-hit configurations (±(R±r)) are not lost by directional pruning.
+    s.refineBVHNearRay(P0, dir_hat, tol);
+    s.refineBVHNearRay(P0, -dir_hat, tol);
+
+    // Fetch BVH patches after symmetric refinement
+    auto patches = s.getBVH(max_grid > 0 ? max_grid : 40, tol, surface_extent, 9);
+
+    // Build ray intervals from BVH patch AABBs
+    std::vector<std::pair<T, T>> t_intervals;
+    t_intervals.reserve(patches.size());
+    for (const auto& p : patches) {
+        bool hit; T t_enter, t_exit;
+        std::tie(hit, t_enter, t_exit) = rayAABBInterval<T, N>(P0, dir, p.minPoint.coords, p.maxPoint.coords, tol, surface_extent);
+        if (hit && t_exit >= t_min && t_enter <= t_max) {
+            t_intervals.emplace_back(
+                std::max(t_enter - tol.evaluateEpsilon(surface_extent), t_min),
+                std::min(t_exit + tol.evaluateEpsilon(surface_extent), t_max)
+            );
         }
     }
-
-    // refine with Newton for (u,v,t) solving S(u,v) - L(t) = 0
-    int max_iters = 30;
-    T alpha = T(1.0);
-    T prevDist = bestDist;
-    T u = best_u;
-    T v = best_v;
-    T t = dir.dot(best_spt.coords - P0) / dir.squaredNorm();
-
-    for (int iter = 0; iter < max_iters; ++iter) {
-        Point<T, 3> Spt = s.evaluate(u, v);
-
-        // numerical partials
-        T uh = std::max((T)1e-7, (u1 - u0) * (T)1e-6);
-        T vh = std::max((T)1e-7, (v1 - v0) * (T)1e-6);
-        Point<T, 3> Sup = s.evaluate(std::min(u1, u + uh), v);
-        Point<T, 3> Sum = s.evaluate(std::max(u0, u - uh), v);
-        Point<T, 3> Svp = s.evaluate(u, std::min(v1, v + vh));
-        Point<T, 3> Svm = s.evaluate(u, std::max(v0, v - vh));
-
-        Eigen::Matrix<T, N, 1> Su = (Sup.coords - Sum.coords) / (Sup.coords[0] - Sum.coords[0] + (T)1e-12); // fallback to component-wise safe
-        Eigen::Matrix<T, N, 1> Sv = (Svp.coords - Svm.coords) / (Svp.coords[1] - Svm.coords[1] + (T)1e-12);
-        // The above is a simple numerical approximation; component-wise safe division prevents zero denom.
-
-        // residual
-        Eigen::Matrix<T, 3, 1> R;
-        for (int k = 0; k < 3; ++k) R(k, 0) = Spt.coords[k] - (P0[k] + t * dir[k]);
-
-        // Jacobian J = [Su Sv -dir]
-        Eigen::Matrix<T, 3, 3> J;
-        for (int k = 0; k < 3; ++k) {
-            J(k, 0) = Su[k];
-            J(k, 1) = Sv[k];
-            J(k, 2) = -dir[k];
-        }
-
-        // solve J * delta = -R
-        Eigen::Matrix<T, 3, 1> delta;
-        Eigen::FullPivLU<Eigen::Matrix<T, 3, 3>> lu(J);
-        if (lu.isInvertible()) {
-            delta = lu.solve(-R);
+    // Sort and merge overlapping intervals
+    std::sort(t_intervals.begin(), t_intervals.end(), [](const auto& a, const auto& b){ return a.first < b.first; });
+    std::vector<std::pair<T, T>> merged_intervals;
+    for (const auto& iv : t_intervals) {
+        if (merged_intervals.empty() || iv.first > merged_intervals.back().second) {
+            merged_intervals.push_back(iv);
         } else {
-            // damped / least squares fallback
-            Eigen::Matrix<T, 3, 3> JTJ = J.transpose() * J;
-            Eigen::Matrix<T, 3, 1> JTR = J.transpose() * R;
-            for (int d = 0; d < 3; ++d) JTJ(d, d) += eps;
-            delta = JTJ.colPivHouseholderQr().solve(-JTR);
+            merged_intervals.back().second = std::max(merged_intervals.back().second, iv.second);
         }
+    }
+    
+    /*
+    // Debug: print BVH t-intervals for the ray
+    if constexpr (N == 3) { // only for 3D for clarity
+        std::cout << "DEBUG: BVH t-intervals for line-surface:" << '\n';
+        if (merged_intervals.empty()) {
+            std::cout << "DEBUG: No intervals found." << '\n';
+        } else {
+            for (const auto& iv : merged_intervals) {
+                std::cout << "DEBUG: [" << iv.first << ", " << iv.second << "]" << '\n';
+            }
+        }
+    }
+     */
 
-        T du = delta(0, 0);
-        T dv = delta(1, 0);
-        T dt = delta(2, 0);
+    // ======================================================
+    // (u,v,t) Newton solver based on BVH patch midpoints
+    // ======================================================
+    auto dedupHits = [&](std::vector<Point<T,N>>& hits, const Point<T,N>& newPt, T tol) {
+        for (const auto& h : hits) {
+            if ((h.coords - newPt.coords).norm() < tol) return false;
+        }
+        hits.emplace_back(newPt);
+        return true;
+    };
 
-        u += alpha * du;
-        v += alpha * dv;
-        t += alpha * dt;
+    T tol_val = tol.evaluateEpsilon(surface_extent);
 
-        // clamp
-        if (u < u0) u = u0; if (u > u1) u = u1;
-        if (v < v0) v = v0; if (v > v1) v = v1;
+    auto polishHit = [&](Point<T,N>& Spt, T& u, T& v, T& t) {
+        for (int i = 0; i < 2; ++i) {
+            Point<T,N> Lpt(P0 + t * dir);
+            Eigen::Matrix<T,N,1> R = Spt.coords - Lpt.coords;
+            if (R.norm() < tol_val) break;
+            T uh = std::max(tol_val, std::numeric_limits<T>::epsilon() * 10);
+            T vh = std::max(tol_val, std::numeric_limits<T>::epsilon() * 10);
+            Point<T,N> Sup = s.evaluate(std::min(u1,u+uh), v);
+            Point<T,N> Sum = s.evaluate(std::max(u0,u-uh), v);
+            Point<T,N> Svp = s.evaluate(u, std::min(v1,v+vh));
+            Point<T,N> Svm = s.evaluate(u, std::max(v0,v-vh));
+            Eigen::Matrix<T,N,1> Su = (Sup.coords - Sum.coords) / (2*uh);
+            Eigen::Matrix<T,N,1> Sv = (Svp.coords - Svm.coords) / (2*vh);
+            Eigen::Matrix<T,N,3> J;
+            for (int k = 0; k < N; ++k) { J(k,0)=Su[k]; J(k,1)=Sv[k]; J(k,2)=-dir[k]; }
+            Eigen::Matrix<T,N,1> negR = -R;
+            Eigen::Matrix<T,3,1> delta = J.colPivHouseholderQr().solve(negR);
+            u += delta(0,0); v += delta(1,0); t += delta(2,0);
+            Spt = s.evaluate(u,v);
+        }
+    };
 
-        Point<T, 3> Snew = s.evaluate(u, v);
-        Point<T, 3> Lnew(P0 + t * dir);
-        T dist = (Snew - Lnew).norm();
-        if (std::abs(dist - prevDist) < eps * 0.5) break;
-        prevDist = dist;
+    std::vector<Point<T,N>> intersections;
+    T dedup_tol = tol_val * 1.5;
+    int max_iters = 20;
+
+    for (const auto& iv : merged_intervals) {
+        // Adaptive seeding: number of seeds based on interval length and surface extent
+        int num_seeds = std::max(5, (int)((iv.second - iv.first) / (surface_extent * 0.1)));
+        for (int i = 0; i < num_seeds; ++i) {
+            T t_seed = iv.first + (iv.second - iv.first) * (i + 0.5) / num_seeds;
+            // Add random offset to seed point
+            Eigen::Matrix<T,N,1> offset = Eigen::Matrix<T,N,1>::Random().normalized() * (tol_val * 10);
+            Point<T,N> P_seed(P0 + t_seed * dir + offset);
+            // Point<T,N> P_seed(P0 + t_seed * dir);
+            auto proj = s.projectPoint(P_seed.coords, tol);
+            T u = proj.u;
+            T v = proj.v;
+            T t = t_seed;
+
+            for (int iter = 0; iter < max_iters; ++iter) {
+                Point<T,N> Spt = s.evaluate(u, v);
+                Eigen::Matrix<T,N,1> R = Spt.coords - (P0 + t * dir);
+                if (R.norm() < tol_val) break;
+
+                // Partial derivatives
+                T uh = std::max(tol_val, std::numeric_limits<T>::epsilon() * 10);
+                T vh = std::max(tol_val, std::numeric_limits<T>::epsilon() * 10);
+                Point<T,N> Sup = s.evaluate(std::min(u1,u+uh), v);
+                Point<T,N> Sum = s.evaluate(std::max(u0,u-uh), v);
+                Point<T,N> Svp = s.evaluate(u, std::min(v1,v+vh));
+                Point<T,N> Svm = s.evaluate(u, std::max(v0,v-vh));
+                Eigen::Matrix<T,N,1> Su = (Sup.coords - Sum.coords) / (2*uh);
+                Eigen::Matrix<T,N,1> Sv = (Svp.coords - Svm.coords) / (2*vh);
+
+                Eigen::Matrix<T,N,3> J;
+                for (int k = 0; k < N; ++k) {
+                    J(k,0) = Su[k];
+                    J(k,1) = Sv[k];
+                    J(k,2) = -dir[k];
+                }
+
+                Eigen::Matrix<T,3,1> delta = J.colPivHouseholderQr().solve(-R);
+                T du = delta(0,0), dv = delta(1,0), dtau = delta(2,0);
+
+                // Damping for stability
+                T alpha = 0.8;
+                u += alpha * du;
+                v += alpha * dv;
+                t += alpha * dtau;
+
+                // Clamp to domain
+                u = std::clamp(u, u0, u1);
+                v = std::clamp(v, v0, v1);
+            }
+
+            // Check final residual
+            Point<T,N> Sfinal = s.evaluate(u,v);
+            Point<T,N> Lfinal(P0 + t * dir);
+            T dist = (Sfinal - Lfinal).norm();
+            if (dist <= tol_val * 5.0) {
+                polishHit(Sfinal, u, v, t);
+                Point<T,N> polished((Sfinal.coords + Lfinal.coords) * 0.5);
+                dedupHits(intersections, polished, dedup_tol);
+            }
+        }
     }
 
-    Point<T, 3> Sfinal = s.evaluate(u, v);
-    Point<T, 3> Lfinal(P0 + t * dir);
-    T finalDist = (Sfinal - Lfinal).norm();
-    if (finalDist <= tol.evaluateEpsilon(std::max((T)1.0, finalDist))) {
+    // After all BVH operations are done, clear the BVH direction hint
+    s.clearBVHDirectionHint();
+    if (!intersections.empty()) {
         result.intersects = true;
-        result.points = {Point<T, 3>((Sfinal.coords + Lfinal.coords) * (T)0.5)};
-        result.description = "Line intersects surface (within tolerance)";
+        result.points = intersections;
+        result.description = "Line intersects surface (u,v,t Newton solver)";
     } else {
-        result.description = "Line does not intersect surface";
+        result.description = "Line does not intersect surface (u,v,t Newton)";
     }
-
     return result;
 }
 
@@ -485,24 +765,56 @@ template <typename T, int N>
 LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Plane<T, N>& plane,
                                       const Tolerance& tol = Tolerance()) {
     LineIntersectionResult<T, N> result;
+
+    const auto& n = plane.normal;
+    const auto& p0 = line.point1().coords;
+    const auto& d = line.direction();
+    const auto& b = plane.base.coords;
+
+    T scale = d.norm() + n.norm();
+    T eps = tol.evaluateEpsilon(scale);
+
     if constexpr (N == 3) {
-        auto n = plane.normal;
-        auto diff = line.point1().coords - plane.base.coords;
-        T denom = n.dot(line.direction());
-        T scale = line.direction().norm() + plane.normal.norm();
-        if (std::abs(denom) < tol.evaluateEpsilon(scale)) {
-            result.description = "Line is parallel to plane";
+        // 3D fast path: geometric intersection
+        T denom = n.dot(d);
+        if (std::abs(denom) < eps) {
+            T dist = n.dot(p0 - b);
+            if (std::abs(dist) < eps) {
+                result.intersects = true;
+                result.lines = {line};
+                result.description = "Line lies in plane (coincident)";
+            } else {
+                result.description = "Line is parallel to plane";
+            }
             return result;
         }
-        T t = -n.dot(diff) / denom;
-        Point<T, N> pt(line.point1().coords + t * line.direction());
+        T t = -n.dot(p0 - b) / denom;
+        Point<T, 3> pt(p0 + t * d);
         result.intersects = true;
         result.points = {pt};
-        result.description = "Line intersects plane at a point";
+        result.description = "Line intersects plane at a point (3D fast path)";
+        return result;
+    } else {
+        // Generic ND implementation
+        T denom = n.dot(d);
+        if (std::abs(denom) < eps) {
+            T dist = n.dot(p0 - b);
+            if (std::abs(dist) < eps) {
+                result.intersects = true;
+                result.lines = {line};
+                result.description = "Line lies in plane (coincident)";
+            } else {
+                result.description = "Line is parallel to plane";
+            }
+            return result;
+        }
+        T t = -n.dot(p0 - b) / denom;
+        Point<T, N> pt(p0 + t * d);
+        result.intersects = true;
+        result.points = {pt};
+        result.description = "Line intersects plane at a point (ND fallback)";
         return result;
     }
-    result.description = "ND Line–Plane intersection not implemented";
-    return result;
 }
 
 // Reverse overload: Plane–Line
@@ -568,7 +880,7 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Face<T, N>&
 
     // First, intersect with the face’s supporting plane
     Plane<T, N> facePlane(face.base, face.normal);
-    auto planeRes = intersect(line, facePlane, tol.evaluateEpsilon(1.0));
+    auto planeRes = intersect(line, facePlane, tol);
     if (!planeRes.intersects || planeRes.points.empty()) {
         result.description = "Line does not intersect face plane";
         return result;
@@ -577,7 +889,7 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Face<T, N>&
     Point<T, N> candidate = planeRes.points[0];
 
     // Check if intersection point lies within the face polygon
-    if (face.contains(candidate, tol.evaluateEpsilon(1.0))) {
+    if (intersect(candidate, face, tol).intersects) {
         result.intersects = true;
         result.points = {candidate};
         result.description = "Line intersects face at a point";

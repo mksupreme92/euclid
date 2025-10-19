@@ -6,7 +6,7 @@
 
 ## ⚙️ Core Infrastructure
 
-- [x] `Tolearance Model`
+- [x] `Toleraance Model`
 
 ## 📐 Geometry Primitives
 
@@ -46,10 +46,10 @@
 - [x] `Line - Surface` → returns point(s) of intersection
 
 #### Segment Intersections
-- [ ] `Segment - Segment` → returns point (or segment if colinear)
-- [ ] `Segment - Curve` → returns points of intersection
-- [ ] `Segment - Plane` → returns point or segment
-- [ ] `Segment - Face` → returns point or segment
+- [x] `Segment - Segment` → returns point (or segment if colinear)
+- [x] `Segment - Curve` → returns points of intersection
+- [x] `Segment - Plane` → returns point or segment
+- [x] `Segment - Face` → returns point or segment
 - [ ] `Segment - Surface` → returns point(s) of intersection
 
 #### Curve Intersections

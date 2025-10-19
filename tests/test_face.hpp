@@ -67,7 +67,7 @@ inline void testFaceTransforms() {
 
     bool allInside = true;
     for (const auto& v : face5Trans.vertices)
-        allInside &= face5Trans.contains(v);
+        allInside &= intersect(v, face5Trans).intersects;
 
     printTest("Face5 transform: vertices", verticesOk5);
     printTest("Face5 transform: plane consistency", allInside);
@@ -83,9 +83,9 @@ void testFace2D() {
     std::vector<Point2> pts2 = { Point2{0,0}, Point2{1,0}, Point2{1,1}, Point2{0,1} };
     Face2 face2 = Face2::fromPoints(pts2);
 
-    printTest("2D Face: vertex inside", face2.contains(pts2[0]));
-    printTest("2D Face: edge vertex inside", face2.contains(pts2[1]));
-    printTest("2D Face: outside point", !face2.contains(Point2{0.5, 1.5}));
+    printTest("2D Face: vertex inside", intersect(pts2[0], face2).intersects);
+    printTest("2D Face: edge vertex inside", intersect(pts2[1], face2).intersects);
+    printTest("2D Face: outside point", !intersect(Point2{0.5, 1.5}, face2).intersects);
 }
 
 template<typename T>
@@ -97,10 +97,10 @@ void testFace3D() {
     std::vector<Point3> pts3 = { Point3{0,0,0}, Point3{1,0,0}, Point3{0,1,0} };
     Face3 face3 = Face3::fromPoints(pts3);
 
-    printTest("3D Face: vertex inside", face3.contains(pts3[0]));
-    printTest("3D Face: vertex inside", face3.contains(pts3[1]));
-    printTest("3D Face: vertex inside", face3.contains(pts3[2]));
-    printTest("3D Face: outside point", !face3.contains(Point3{0,0,1}));
+    printTest("3D Face: vertex inside", intersect(pts3[0], face3).intersects);
+    printTest("3D Face: vertex inside", intersect(pts3[1], face3).intersects);
+    printTest("3D Face: vertex inside", intersect(pts3[2], face3).intersects);
+    printTest("3D Face: outside point", !intersect(Point3{0,0,1}, face3).intersects);
 }
 
 template<typename T>
@@ -112,12 +112,12 @@ void testFace5D() {
     std::vector<Point5> pts5 = { Point5{0,0,0,0,0}, Point5{1,0,0,0,0}, Point5{0,1,0,0,0}, Point5{0,0,1,0,0}, Point5{0,0,0,1,0} };
     Face5 face5 = Face5::fromPoints(pts5);
 
-    printTest("5D Face: vertex inside", face5.contains(pts5[0]));
-    printTest("5D Face: vertex inside", face5.contains(pts5[1]));
-    printTest("5D Face: vertex inside", face5.contains(pts5[2]));
-    printTest("5D Face: vertex inside", face5.contains(pts5[3]));
-    printTest("5D Face: vertex inside", face5.contains(pts5[4]));
-    printTest("5D Face: outside point", !face5.contains(Point5{0,0,0,0,1}));
+    printTest("5D Face: vertex inside", intersect(pts5[0], face5).intersects);
+    printTest("5D Face: vertex inside", intersect(pts5[1], face5).intersects);
+    printTest("5D Face: vertex inside", intersect(pts5[2], face5).intersects);
+    printTest("5D Face: vertex inside", intersect(pts5[3], face5).intersects);
+    printTest("5D Face: vertex inside", intersect(pts5[4], face5).intersects);
+    printTest("5D Face: outside point", !intersect(Point5{0,0,0,0,1}, face5).intersects);
 }
 
 inline void testFace() {

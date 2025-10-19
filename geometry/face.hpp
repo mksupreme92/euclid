@@ -10,7 +10,7 @@ namespace Euclid::Geometry {
 template<typename T, int N>
 class Face {
 public:
-    using PointType = Point<T, N>;            
+    using PointType = Point<T, N>;
     using VectorType = Eigen::Matrix<T, N, 1>;
     using Points = std::vector<PointType>;
 
@@ -48,7 +48,8 @@ public:
         return Face{base, n, verts};
     }
 
-    // Check if a point is inside the face
+    // Intersection and containment checks have been migrated to the intersection/ module for unified handling.
+    [[deprecated("Use Euclid::Geometry::intersect(Point, Face) instead. This method will be removed in a future release.")]]
     bool contains(const PointType& p, T tol = T(1e-8)) const {
         if (vertices.size() < 2)
             return false;
