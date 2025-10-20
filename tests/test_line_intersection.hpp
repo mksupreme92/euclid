@@ -8,6 +8,123 @@
 namespace Euclid {
 namespace Tests {
 
+// Frequency resolution test for line–surface intersection (sinusoidal surface)
+inline void testLineSurfaceFrequencyResolution() {
+    using namespace Euclid;
+    using std::cout;
+
+    cout << "---- Line–Surface Frequency Resolution Test ----" << std::endl;
+
+    // Use Euclid's tolerance model
+    Tolerance tol(1e-6, 1e-9, 1e-6, 1.0);
+    double expectedLimit = 1.0 / (2.0 * M_PI * tol.paramTol);
+    cout << "Expected frequency limit ≈ " << expectedLimit
+         << " (based on paramTol = " << tol.paramTol << ")\n";
+
+    Line<double,3> line(Point<double,3>({0, 0, 0}), Eigen::Vector3d({1, 0, 0}));
+    double freq = 1.0;
+    double failFreq = -1.0;
+
+    while (true) {
+        auto surface = Surface<double,3>(
+            [freq](double u, double v) {
+                return Point<double,3>({
+                    u,
+                    v - 0.5, // small strip around y=0
+                    std::sin(2.0 * M_PI * freq * u)
+                });
+            },
+            {{0.0, 1.0}, {0.0, 1.0}}
+        );
+
+        int expected = static_cast<int>(2 * freq + 1);
+        auto result = intersect(line, surface, tol);
+        int found = static_cast<int>(result.points.size());
+        bool ok = std::abs(found - expected) <= 1;
+
+        cout << "freq=" << std::setw(8) << freq
+             << "  expected=" << std::setw(6) << expected
+             << "  found=" << std::setw(6) << found
+             << (ok ? " ✅" : " ❌") << std::endl;
+
+        if (!ok) {
+            failFreq = freq;
+            cout << "❌ Numerical resolution limit reached at freq = " << freq
+                 << "\nExpected theoretical limit ≈ " << expectedLimit
+                 << "\nRatio actual/theoretical = " << freq / expectedLimit << std::endl;
+            break;
+        }
+
+        freq *= 2.0; // double each iteration
+
+        if (freq > 1e5) {
+            cout << "✅ No mismatch detected up to freq = " << freq << std::endl;
+            break;
+        }
+    }
+}
+
+// Scaling test: empirical vs theoretical frequency limit across paramTol values
+inline void testLineSurfaceFrequencyScaling() {
+    using namespace Euclid;
+    using std::cout;
+
+    cout << "---- Line–Surface Frequency Scaling Test ----" << std::endl;
+
+    std::vector<double> paramTols = {1e-3, 1e-4, 1e-5, 1e-6, 1e-7};
+    cout << std::setw(10) << "paramTol" << std::setw(15) << "f_theory"
+         << std::setw(15) << "f_empirical" << std::setw(15) << "ratio" << std::endl;
+
+    for (double paramTol : paramTols) {
+        Tolerance tol(1e-6, 1e-9, paramTol, 1.0);
+        double expectedLimit = 1.0 / (2.0 * M_PI * tol.paramTol);
+        double freq = 1.0;
+        double failFreq = -1.0;
+
+        Line<double,3> line(Point<double,3>({0, 0, 0}), Eigen::Vector3d({1, 0, 0}));
+
+        while (freq < expectedLimit * 10) {
+            const double thisFreq = freq; // isolate capture
+            Tolerance localTol(1e-6, 1e-9, paramTol, 1.0);
+            Line<double,3> line(Point<double,3>({0, 0, 0}), Eigen::Vector3d({1, 0, 0}));
+
+            Surface<double,3> surface(
+                [thisFreq](double u, double v) {
+                    return Point<double,3>({
+                        u,
+                        v - 0.5,
+                        std::sin(2.0 * M_PI * thisFreq * u)
+                    });
+                },
+                {{0.0, 1.0}, {0.0, 1.0}}
+            );
+
+            int expected = static_cast<int>(2 * thisFreq + 1);
+            auto result = intersect(line, surface, localTol);
+            int found = static_cast<int>(result.points.size());
+            bool ok = std::abs(found - expected) <= 1;
+
+            if (!ok) {
+                failFreq = thisFreq;
+                break;
+            }
+
+            freq *= 2.0;
+        }
+
+        double empiricalLimit = (failFreq > 0 ? failFreq : freq);
+        double ratio = empiricalLimit / expectedLimit;
+
+        cout << std::setw(10) << std::scientific << paramTol
+             << std::setw(15) << std::fixed << std::setprecision(0) << expectedLimit
+             << std::setw(15) << std::fixed << std::setprecision(0) << empiricalLimit
+             << std::setw(15) << std::setprecision(6) << ratio
+             << std::endl;
+    }
+
+    cout << "✅ Completed frequency scaling sweep across paramTol values.\n";
+}
+
 inline void testLineLineIntersection() {
     // 1. Line-Line intersection at a point
     {
@@ -105,6 +222,333 @@ inline void testLinePlaneIntersection() {
             }
         }
     }
+
+    // 1b. Oblique intersection (non-perpendicular line)
+    {
+        Line l(Point<double,3>({0,0,0}), Eigen::Vector3d({1,1,1}));
+        Plane pl(Point<double,3>({0,0,5}), Eigen::Vector3d({0,0,1}));
+        auto result = intersect(l, pl);
+        printTest("Line-Plane (oblique): has intersection", result.intersects);
+        if (result.intersects && !result.points.empty()) {
+            const auto& p = result.points[0];
+            printTest("Line-Plane (oblique): z≈5", std::abs(p[2] - 5.0) < 1e-9);
+        }
+    }
+
+    // 1c. Parallel non-coincident (above plane)
+    {
+        Line l(Point<double,3>({0,0,1}), Eigen::Vector3d({1,0,0}));
+        Plane pl(Point<double,3>({0,0,0}), Eigen::Vector3d({0,0,1}));
+        auto result = intersect(l, pl);
+        printTest("Line-Plane (parallel above): no intersection", !result.intersects);
+    }
+
+    // 1d. Coincident case
+    {
+        Line l(Point<double,3>({0,0,5}), Eigen::Vector3d({1,0,0}));
+        Plane pl(Point<double,3>({0,0,5}), Eigen::Vector3d({0,0,1}));
+        auto result = intersect(l, pl);
+        std::cout << "DEBUG: Coincident Test -- dot(line_dir, plane_normal)="
+                  << l.direction().dot(pl.normal) << ", offset="
+                  << (pl.base.coords - l.point1().coords).dot(pl.normal)
+                  << std::endl;
+        printTest("Line-Plane (coincident): has intersection", result.intersects);
+        printTest("Line-Plane (coincident): result is a Line", !result.lines.empty());
+    }
+
+
+    // 1f. Scaled geometry (tolerance consistency)
+    {
+        double scale = 1e6;
+        Line l(Point<double,3>({0,0,0}), Eigen::Vector3d({0,0,scale}));
+        Plane pl(Point<double,3>({0,0,5*scale}), Eigen::Vector3d({0,0,1}));
+        auto result = intersect(l, pl);
+        printTest("Line-Plane (scaled units): has intersection", result.intersects);
+        if (result.intersects && !result.points.empty()) {
+            printTest("Line-Plane (scaled units): z≈5e6", std::abs(result.points[0][2] - 5*scale) < 1e-3);
+        }
+    }
+}
+
+inline void testLinePlaneParallelThreshold() {
+    using namespace Euclid;
+    using std::cout;
+    cout << "---- Line–Plane Parallelism Logarithmic Sweep (micro angles in radians, forward) ----" << std::endl;
+
+    Plane<double,3> plane(Point<double,3>({0,0,0}), Eigen::Vector3d({0,0,1}));
+    double z0 = 1.0;
+    // Logarithmic sweep: start at 1e-10 rad (nearly parallel), up to 1e-1 rad (steep)
+    const int N = 40;
+    double minAngle = 1e-10;
+    double maxAngle = 1e-1;
+    double logMin = std::log10(minAngle);
+    double logMax = std::log10(maxAngle);
+    double lastAngle = -1.0;
+    bool found_transition = false;
+    double first_success_angle = -1.0;
+    for (int i = 0; i <= N; ++i) {
+        double logAngle = logMin + (logMax - logMin) * (double(i) / N);
+        double theta = std::pow(10.0, logAngle);
+        // Avoid duplicate theta for i=0 and i=N due to floating point
+        if (theta == lastAngle) continue;
+        lastAngle = theta;
+        // Direction: (cos(theta), 0, sin(theta)), so theta ≈ 0 is parallel to plane
+        Eigen::Vector3d dir(std::cos(theta), 0, std::sin(theta));
+        Line<double,3> line(Point<double,3>({0,0,z0}), dir);
+
+        auto result = intersect(line, plane);
+        bool hit = result.intersects;
+
+        double dotVal = std::abs(dir.normalized().dot(plane.normal));
+        std::cout << "angle (rad)=" << std::scientific << std::setprecision(2) << theta
+                  << ", dot=" << std::setprecision(10) << dotVal
+                  << "  -> intersects=" << (hit ? "✅" : "❌") << std::endl;
+
+        // Look for first transition from ❌ to ✅ (first hit after a miss)
+        if (!found_transition && hit) {
+            first_success_angle = theta;
+            found_transition = true;
+            // Optionally, break here if you want only the first transition
+            break;
+        }
+    }
+
+    if (found_transition)
+        std::cout << "✅ Intersection first succeeds at angle ≈ " << std::scientific << std::setprecision(2) << first_success_angle << " rad from parallel\n";
+    else
+        std::cout << "❌ No intersection transition detected (never succeeded) in tested angle range\n";
+}
+
+// Logarithmic sweep of micro angles for line-segment intersection parallel threshold
+inline void testLineSegmentParallelThreshold() {
+    using namespace Euclid;
+    using std::cout;
+    cout << "---- Line–Segment Parallelism Logarithmic Sweep (micro angles in radians, backward from intersecting to parallel) ----" << std::endl;
+
+    // Base segment along X-axis, z=0
+    Point<double,3> A({0, 0, 0});
+    Point<double,3> B({1, 0, 0});
+    Segment<double,3> seg(A, B);
+
+    const int N = 80;
+    double minAngle = 1e-10;
+    double maxAngle = 1e-1;
+    double logMin = std::log10(minAngle);
+    double logMax = std::log10(maxAngle);
+    double lastAngle = -1.0;
+    bool found_hit = false;
+    bool lost_transition = false;
+    double first_failure_angle = -1.0;
+
+    Eigen::Vector3d axisY(0, 1, 0); // rotate around Y axis to tilt downward
+
+    // Sweep from steep (logMax) to nearly parallel (logMin)
+    for (int i = 0; i <= N; ++i) {
+        double logAngle = logMax - (logMax - logMin) * (double(i) / N);
+        double theta = std::pow(10.0, logAngle);
+        if (theta == lastAngle) continue;
+        lastAngle = theta;
+
+        // Compute dynamic offset proportional to actual vertical displacement
+        double segment_length = (B.coords - A.coords).norm();
+        // Start with negative z0 so the initial configuration is below the segment (ensures intersection at steep angles)
+        double z0 = -0.9 * segment_length * std::sin(theta);  // proportional to actual vertical displacement
+
+        // construct line using same segment endpoints but tilted around Y axis
+        Eigen::AngleAxisd rot(-theta, axisY);
+        Eigen::Vector3d A_off = A.coords + Eigen::Vector3d(0, 0, z0);
+        Eigen::Vector3d B_off = B.coords + Eigen::Vector3d(0, 0, z0);
+        Eigen::Vector3d A_rot = rot * A_off;
+        Eigen::Vector3d B_rot = rot * B_off;
+
+        // build line directly through tilted segment endpoints
+        Line<double,3> line{Point<double,3>(A_rot), Point<double,3>(B_rot)};
+
+        auto result = intersect(line, seg);
+        bool hit = result.intersects && !result.points.empty();
+        if (result.intersects && result.points.empty() && !result.lines.empty()) {
+            std::cout << "  (coincident case detected)\n";
+            if (found_hit && !lost_transition) {
+                first_failure_angle = theta;
+                lost_transition = true;
+            }
+            break; // stop after marking transition
+        }
+
+        // Compute minimal distance between line and segment
+        Eigen::Vector3d lineDir = line.direction().normalized();
+        Eigen::Vector3d segDir = seg.end.coords - seg.start.coords;
+        Eigen::Vector3d w0 = line.point1().coords - seg.start.coords;
+        double a = lineDir.dot(lineDir);
+        double b = lineDir.dot(segDir);
+        double c = segDir.dot(segDir);
+        double d = lineDir.dot(w0);
+        double e = segDir.dot(w0);
+        double denom = a*c - b*b;
+        double sc, tc;
+        if (std::abs(denom) < 1e-15) {
+            sc = 0.0;
+            tc = (b > c ? d/b : e/c);
+        } else {
+            sc = (b*e - c*d) / denom;
+            tc = (a*e - b*d) / denom;
+        }
+        Eigen::Vector3d dP = w0 + sc*lineDir - tc*segDir;
+        double dist = dP.norm();
+
+        double dotVal = std::abs(lineDir.dot(segDir.normalized()));
+        std::cout << "angle (rad)=" << std::scientific << std::setprecision(2) << theta
+                  << ", dot=" << std::setprecision(10) << dotVal
+                  << ", dist=" << std::setprecision(4) << dist
+                  << "  -> intersects=" << (hit ? "✅" : "❌") << std::endl;
+
+        // Track transition: after seeing any hit, record first non-hit as the loss point
+        if (!found_hit && hit) {
+            found_hit = true;
+        }
+        if (found_hit && !hit && !lost_transition) {
+            first_failure_angle = theta;
+            lost_transition = true;
+            // Do not break; keep printing all values for the sweep
+        }
+    }
+
+    if (lost_transition)
+        std::cout << "✅ Line–Segment intersection first lost (from intersecting to parallel) at angle ≈ "
+                  << std::scientific << std::setprecision(2) << first_failure_angle
+                  << " rad from parallel\n";
+    else
+        std::cout << "❌ No loss-of-intersection transition detected (always intersected)\n";
+}
+
+// Logarithmic sweep of micro angles for line-face intersection parallel threshold
+inline void testLineFaceParallelThreshold() {
+    using namespace Euclid;
+    using std::cout;
+    cout << "---- Line–Face Parallelism Logarithmic Sweep (micro angles in radians, backward from intersecting to parallel) ----" << std::endl;
+
+    // Define square face in XY plane, z=0, normal (0,0,1)
+    std::vector<Point<double,3>> vertices = {
+        Point<double,3>({0,0,0}),
+        Point<double,3>({1,0,0}),
+        Point<double,3>({1,1,0}),
+        Point<double,3>({0,1,0})
+    };
+    Eigen::Vector3d normal = (vertices[1].coords - vertices[0].coords).cross(vertices[2].coords - vertices[0].coords).normalized();
+    Face<double,3> face(vertices[0], normal, vertices);
+
+    const int N = 80;
+    double minAngle = 1e-10;
+    double maxAngle = 1e-1;
+    double logMin = std::log10(minAngle);
+    double logMax = std::log10(maxAngle);
+    double lastAngle = -1.0;
+    bool found_hit = false;
+    bool lost_transition = false;
+    double first_failure_angle = -1.0;
+
+    Eigen::Vector3d axisY(0, 1, 0); // rotate about Y to tilt toward parallel
+
+    for (int i = 0; i <= N; ++i) {
+        double logAngle = logMax - (logMax - logMin) * (double(i) / N);
+        double theta = std::pow(10.0, logAngle);
+        if (theta == lastAngle) continue;
+        lastAngle = theta;
+
+        double face_size = 1.0;
+        double z0 = -0.9 * face_size * std::sin(theta);
+
+        // Construct line tilted toward the face
+        Eigen::AngleAxisd rot(-theta, axisY);
+        Eigen::Vector3d origin(0.5, 0.5, z0);
+        Eigen::Vector3d dir = rot * Eigen::Vector3d(0, 0, 1);
+        Line<double,3> line(Point<double,3>(origin), dir);
+
+        auto result = intersect(line, face);
+        bool hit = result.intersects && !result.points.empty();
+
+        if (result.intersects && result.points.empty() && !result.lines.empty()) {
+            std::cout << "  (coincident case detected)\n";
+            if (found_hit && !lost_transition) {
+                first_failure_angle = theta;
+                lost_transition = true;
+            }
+            break;
+        }
+
+        // Compute minimal distance from line origin to face plane
+        double dist = std::abs(origin.dot(normal));
+        double dotVal = std::abs(dir.normalized().dot(normal));
+
+        std::cout << "angle (rad)=" << std::scientific << std::setprecision(2) << theta
+                  << ", dot=" << std::setprecision(10) << dotVal
+                  << ", dist=" << std::setprecision(4) << dist
+                  << "  -> intersects=" << (hit ? "✅" : "❌") << std::endl;
+
+        if (!found_hit && hit)
+            found_hit = true;
+        if (found_hit && !hit && !lost_transition) {
+            first_failure_angle = theta;
+            lost_transition = true;
+            break; // stop sweeping after first loss
+        }
+    }
+
+    if (lost_transition)
+        std::cout << "✅ Line–Face intersection first lost (from intersecting to parallel) at angle ≈ "
+                  << std::scientific << std::setprecision(2) << first_failure_angle
+                  << " rad from parallel\n";
+    else
+        std::cout << "❌ No loss-of-intersection transition detected (always intersected)\n";
+}
+
+// Logarithmic sweep of micro angles for line-line intersection parallel threshold
+inline void testLineLineParallelThreshold() {
+    using namespace Euclid;
+    using std::cout;
+    cout << "---- Line–Line Parallelism Logarithmic Sweep (micro angles in radians, forward) ----" << std::endl;
+
+    const int N = 40;
+    double z0 = 1.0;
+    double minAngle = 1e-10;
+    double maxAngle = 1e-1;
+    double logMin = std::log10(minAngle);
+    double logMax = std::log10(maxAngle);
+    double lastAngle = -1.0;
+    bool found_transition = false;
+    double first_success_angle = -1.0;
+
+    for (int i = 0; i <= N; ++i) {
+        double logAngle = logMin + (logMax - logMin) * (double(i) / N);
+        double theta = std::pow(10.0, logAngle);
+        if (theta == lastAngle) continue;
+        lastAngle = theta;
+
+        // Base line along x-axis
+        Line<double,3> base(Point<double,3>({0,0,0}), Eigen::Vector3d({1,0,0}));
+        // Second line rotated slightly upward by theta, starting at z=z0
+        Eigen::Vector3d dir(std::cos(theta), 0, std::sin(theta));
+        Line<double,3> l(Point<double,3>({0,0,z0}), dir);
+
+        auto result = intersect(base, l);
+        bool hit = result.intersects;
+
+        double dotVal = std::abs(dir.normalized().dot(base.direction().normalized()));
+        std::cout << "angle (rad)=" << std::scientific << std::setprecision(2) << theta
+                  << ", dot=" << std::setprecision(10) << dotVal
+                  << "  -> intersects=" << (hit ? "✅" : "❌") << std::endl;
+
+        if (!found_transition && hit) {
+            first_success_angle = theta;
+            found_transition = true;
+            break;
+        }
+    }
+
+    if (found_transition)
+        std::cout << "✅ Line-Line intersection first succeeds at angle ≈ " << std::scientific << std::setprecision(2) << first_success_angle << " rad from parallel\n";
+    else
+        std::cout << "❌ No intersection transition detected (never succeeded) in tested angle range\n";
 }
 
 // Trivial tests for ND (4D, 5D) line-plane intersection
@@ -978,12 +1422,18 @@ inline void testLineIntersection() {
     cout << "\nLine Intersection Tests\n" << std::endl;
     
     //testLineLineIntersection();
+    //testLineLineParallelThreshold();
     //testLineSegmentIntersection();
-    testLineCurveIntersection();
+    //testLineSegmentParallelThreshold();
+    //testLineCurveIntersection();
     //testLinePlaneIntersection();
     //testLinePlaneIntersectionND();
+    //testLinePlaneParallelThreshold();
     //testLineFaceIntersection();
+    //testLineFaceParallelThreshold();
     //testLineSurfaceIntersection();
+    //testLineSurfaceFrequencyResolution();
+    testLineSurfaceFrequencyScaling();
     //testLineMultiIntersectionSurface();
 }
 

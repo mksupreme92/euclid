@@ -17,27 +17,34 @@ public:
         : m_point1(p1), m_point2(p2)
     {
         m_direction = (p2.coords - p1.coords);
-        m_direction.normalize();
+        if (m_direction.norm() == Scalar(0)) {
+            m_direction.setZero();
+        } else {
+            m_direction.normalize();
+        }
     }
 
     // Construct from a point and a direction vector
     Line(const PointType& p, const VectorType& dir, bool normalize = true)
         : m_point1(p), m_direction(dir)
     {
-        if (normalize)
+        if (m_direction.norm() == Scalar(0)) {
+            m_direction.setZero();
+        } else if (normalize) {
             m_direction.normalize();
+        }
         // create a dummy second point along the line
         m_point2 = PointType(p.coords + m_direction);
     }
 
     // Accessors
-    const PointType& point1() const { return m_point1; }
-    const PointType& point2() const { return m_point2; }
-    const VectorType& direction() const { return m_direction; }
+    inline const PointType& point1() const { return m_point1; }
+    inline const PointType& point2() const { return m_point2; }
+    inline const VectorType& direction() const { return m_direction; }
 
     // Apply a general transform to the line
     template <typename Transform>
-    Line applyTransform(const Transform& T) const {
+    inline Line applyTransform(const Transform& T) const {
         // Evaluate any Eigen expressions to avoid lazy evaluation issues
         PointType newPoint = T.apply(m_point1);
         VectorType newDir  = T.applyLinear(m_direction).eval(); // force evaluation
@@ -45,7 +52,7 @@ public:
     }
 
     // Measure angle (radians) between this line and another line
-    Scalar measureAngle(const Line& other) const {
+    inline Scalar measureAngle(const Line& other) const {
         const auto& d1 = this->direction();
         const auto& d2 = other.direction();
         Scalar cosTheta = d1.dot(d2) / (d1.norm() * d2.norm());
@@ -100,4 +107,4 @@ private:
     VectorType m_direction;
 };
 
-} // namespace euclid::geometry
+} // namespace Euclid::Geometry
