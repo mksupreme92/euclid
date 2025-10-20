@@ -4,6 +4,9 @@
 #include "geometry/geometry.hpp"
 #include "geometry/intersection/line_intersection.hpp"
 #include "test_utilities.hpp"
+#include <chrono>
+#include <ctime>
+#include <iomanip>
 
 namespace Euclid {
 namespace Tests {
@@ -15,6 +18,12 @@ inline void testLineSurfaceFrequencyResolution() {
 
     cout << "---- Line–Surface Frequency Resolution Test ----" << std::endl;
 
+    // Log test start time and date
+    auto now = std::chrono::system_clock::now();
+    std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+    cout << "🕒 Test started at: " << std::put_time(std::localtime(&now_c), "%Y-%m-%d %H:%M:%S") << std::endl;
+    auto start = std::chrono::high_resolution_clock::now();
+
     // Use Euclid's tolerance model
     Tolerance tol(1e-6, 1e-9, 1e-6, 1.0);
     double expectedLimit = 1.0 / (2.0 * M_PI * tol.paramTol);
@@ -24,7 +33,25 @@ inline void testLineSurfaceFrequencyResolution() {
     Line<double,3> line(Point<double,3>({0, 0, 0}), Eigen::Vector3d({1, 0, 0}));
     double freq = 1.0;
     double failFreq = -1.0;
+    int iteration_count = 0;
 
+    // For profiling and scaling analysis
+    std::vector<double> freqs, times, avg_times;
+    std::vector<int> expected_vals, found_vals;
+    std::vector<double> alphas;
+
+    cout << std::setw(10) << "freq"
+         << std::setw(12) << "expected"
+         << std::setw(10) << "found"
+         << std::setw(10) << "status"
+         << std::setw(15) << "runtime (ms)"
+         << std::setw(15) << "avg (ms/pt)"
+         << std::setw(10) << "α"
+         << std::endl;
+
+    double prev_time = 0.0;
+    double prev_freq = 0.0;
+    bool first = true;
     while (true) {
         auto surface = Surface<double,3>(
             [freq](double u, double v) {
@@ -38,30 +65,80 @@ inline void testLineSurfaceFrequencyResolution() {
         );
 
         int expected = static_cast<int>(2 * freq + 1);
+        auto t0 = std::chrono::high_resolution_clock::now();
         auto result = intersect(line, surface, tol);
+        auto t1 = std::chrono::high_resolution_clock::now();
         int found = static_cast<int>(result.points.size());
-        bool ok = std::abs(found - expected) <= 1;
+        bool ok = (found == expected);
+        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        double avg_ms = found > 0 ? ms / found : 0.0;
 
-        cout << "freq=" << std::setw(8) << freq
-             << "  expected=" << std::setw(6) << expected
-             << "  found=" << std::setw(6) << found
-             << (ok ? " ✅" : " ❌") << std::endl;
+        freqs.push_back(freq);
+        times.push_back(ms);
+        avg_times.push_back(avg_ms);
+        expected_vals.push_back(expected);
+        found_vals.push_back(found);
+
+        double alpha = 0.0;
+        if (!first && prev_time > 0.0 && prev_freq > 0.0 && ms > 0.0) {
+            alpha = std::log(ms / prev_time) / std::log(freq / prev_freq);
+            alphas.push_back(alpha);
+        }
+        cout << std::setw(10) << freq
+             << std::setw(12) << expected
+             << std::setw(10) << found
+             << std::setw(8)
+             << (found == expected ? "[OK]" : (std::abs(found - expected) <= 1 ? "[NEAR]" : "[!!]"))
+             << std::setw(15) << std::fixed << std::setprecision(3) << ms
+             << std::setw(15) << std::fixed << std::setprecision(6) << avg_ms;
+        if (!first && prev_time > 0.0 && prev_freq > 0.0 && ms > 0.0)
+            cout << std::setw(10) << std::fixed << std::setprecision(3) << alpha;
+        else
+            cout << std::setw(10) << "-";
+        cout << std::endl;
+
+        ++iteration_count;
 
         if (!ok) {
             failFreq = freq;
-            cout << "❌ Numerical resolution limit reached at freq = " << freq
+            cout << "[FAIL] Numerical resolution limit reached at freq = " << freq
                  << "\nExpected theoretical limit ≈ " << expectedLimit
                  << "\nRatio actual/theoretical = " << freq / expectedLimit << std::endl;
             break;
         }
 
+        prev_time = ms;
+        prev_freq = freq;
+        first = false;
+
         freq *= 2.0; // double each iteration
 
         if (freq > 1e5) {
-            cout << "✅ No mismatch detected up to freq = " << freq << std::endl;
+            cout << "[PASS] No mismatch detected up to freq = " << freq << std::endl;
             break;
         }
     }
+    // Compute average scaling exponent α
+    double alpha_sum = 0.0;
+    int alpha_count = 0;
+    for (double a : alphas) {
+        if (std::isfinite(a)) {
+            alpha_sum += a;
+            ++alpha_count;
+        }
+    }
+    if (alpha_count > 0) {
+        double avg_alpha = alpha_sum / alpha_count;
+        cout << "Average scaling exponent α ≈ " << std::fixed << std::setprecision(4) << avg_alpha << std::endl;
+    } else {
+        cout << "Average scaling exponent α: not available (insufficient data)" << std::endl;
+    }
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> duration = end - start;
+    auto end_time = std::chrono::system_clock::now();
+    std::time_t end_c = std::chrono::system_clock::to_time_t(end_time);
+    cout << "✅ Test completed at: " << std::put_time(std::localtime(&end_c), "%Y-%m-%d %H:%M:%S")
+         << " | Runtime: " << duration.count() << " seconds\n";
 }
 
 // Scaling test: empirical vs theoretical frequency limit across paramTol values
@@ -71,10 +148,17 @@ inline void testLineSurfaceFrequencyScaling() {
 
     cout << "---- Line–Surface Frequency Scaling Test ----" << std::endl;
 
+    // Log test start time and date
+    auto now = std::chrono::system_clock::now();
+    std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+    cout << "🕒 Test started at: " << std::put_time(std::localtime(&now_c), "%Y-%m-%d %H:%M:%S") << std::endl;
+    auto start = std::chrono::high_resolution_clock::now();
+
     std::vector<double> paramTols = {1e-3, 1e-4, 1e-5, 1e-6, 1e-7};
     cout << std::setw(10) << "paramTol" << std::setw(15) << "f_theory"
          << std::setw(15) << "f_empirical" << std::setw(15) << "ratio" << std::endl;
 
+    int iteration_count = 0;
     for (double paramTol : paramTols) {
         Tolerance tol(1e-6, 1e-9, paramTol, 1.0);
         double expectedLimit = 1.0 / (2.0 * M_PI * tol.paramTol);
@@ -104,6 +188,8 @@ inline void testLineSurfaceFrequencyScaling() {
             int found = static_cast<int>(result.points.size());
             bool ok = std::abs(found - expected) <= 1;
 
+            ++iteration_count;
+
             if (!ok) {
                 failFreq = thisFreq;
                 break;
@@ -122,6 +208,13 @@ inline void testLineSurfaceFrequencyScaling() {
              << std::endl;
     }
 
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> duration = end - start;
+    auto end_time = std::chrono::system_clock::now();
+    std::time_t end_c = std::chrono::system_clock::to_time_t(end_time);
+    cout << "✅ Test completed at: " << std::put_time(std::localtime(&end_c), "%Y-%m-%d %H:%M:%S")
+         << " | Runtime: " << duration.count() << " seconds\n";
+    cout << "⚙️  Approx complexity ~ O(" << iteration_count << " intersections)\n";
     cout << "✅ Completed frequency scaling sweep across paramTol values.\n";
 }
 
@@ -1431,9 +1524,9 @@ inline void testLineIntersection() {
     //testLinePlaneParallelThreshold();
     //testLineFaceIntersection();
     //testLineFaceParallelThreshold();
-    //testLineSurfaceIntersection();
-    //testLineSurfaceFrequencyResolution();
-    testLineSurfaceFrequencyScaling();
+    testLineSurfaceIntersection();
+    testLineSurfaceFrequencyResolution();
+    //testLineSurfaceFrequencyScaling();
     //testLineMultiIntersectionSurface();
 }
 
