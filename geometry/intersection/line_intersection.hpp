@@ -97,26 +97,24 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& l1, const Line<T, N>& l
                                       const Tolerance& tol = Tolerance()) {
     LineIntersectionResult<T, N> result;
 
-    T scale = l1.direction().norm() + l2.direction().norm();
+    // Adaptive scale for tolerance model (mirrors line–plane scale logic)
+    T scale = l1.direction().norm() + l2.direction().norm() +
+              (l1.point1().coords - l2.point1().coords).norm();
+
     if constexpr (N == 2) {
-        // 2D intersection using determinant
-        T dx1 = l1.direction()[0], dy1 = l1.direction()[1];
-        T dx2 = l2.direction()[0], dy2 = l2.direction()[1];
-        T det = dx1 * dy2 - dy1 * dx2;
-
-        if (std::abs(det) < tol.evaluateEpsilon(scale)) {
-            // Lines are parallel — check if they are coincident
+        // 2D intersection using angular tolerance model (sinTheta)
+        auto d1n = l1.direction().normalized();
+        auto d2n = l2.direction().normalized();
+        T angularTol = tol.evaluateEpsilon(std::max(scale, T(1)));
+        T cosTheta = std::abs(d1n.dot(d2n));
+        T sinTheta = std::sqrt(std::max(T(0), T(1) - cosTheta * cosTheta));
+        if (sinTheta < angularTol) {
+            // Lines are nearly parallel — check if coincident
             auto diff = l2.point1().coords - l1.point1().coords;
-            T eps = tol.evaluateEpsilon(scale);
-
+            T eps = tol.absTol + tol.evaluateEpsilon(scale);
             bool coincident = false;
-            if (diff.norm() < eps) {
-                coincident = true;
-            } else {
-                T dot = diff.normalized().dot(l1.direction().normalized());
-                coincident = std::abs(std::abs(dot) - 1.0) < eps;
-            }
-
+            Eigen::Matrix<T, N, 1> proj = diff - diff.dot(d1n) * d1n;
+            if (proj.norm() < eps) coincident = true;
             if (coincident) {
                 result.intersects = true;
                 result.lines = {l1};
@@ -126,17 +124,52 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& l1, const Line<T, N>& l
             }
             return result;
         }
+        // Not parallel: solve for intersection using determinants
+        T dx1 = l1.direction()[0], dy1 = l1.direction()[1];
+        T dx2 = l2.direction()[0], dy2 = l2.direction()[1];
         auto diff = l2.point1().coords - l1.point1().coords;
+        T det = dx1 * dy2 - dy1 * dx2;
         T t1 = (diff[0] * dy2 - diff[1] * dx2) / det;
+        T t2 = (diff[0] * dy1 - diff[1] * dx1) / det; // param on l2
         Point<T, N> pt(l1.point1().coords + t1 * l1.direction());
         result.intersects = true;
         result.points = {pt};
         result.description = "Lines intersect at a point";
+        ParamHit<T, N> hit;
+        hit.t_line = t1;
+        hit.u_curve = t2;
+        hit.v_surface = T(0);
+        hit.p = pt;
+        hit.tangential = false;
+        result.addHit(hit);
+        result.hits.push_back(hit);
         return result;
     }
 
     if constexpr (N == 3) {
-        // 3D intersection using closest point method
+        // 3D intersection using angular tolerance model (sinTheta)
+        auto d1n = l1.direction().normalized();
+        auto d2n = l2.direction().normalized();
+        T angularTol = tol.evaluateEpsilon(std::max(scale, T(1)));
+        T cosTheta = std::abs(d1n.dot(d2n));
+        T sinTheta = std::sqrt(std::max(T(0), T(1) - cosTheta * cosTheta));
+        if (sinTheta < angularTol) {
+            // Lines are nearly parallel — check if coincident
+            auto diff = l2.point1().coords - l1.point1().coords;
+            T eps = tol.absTol + tol.evaluateEpsilon(scale);
+            bool coincident = false;
+            Eigen::Matrix<T, N, 1> proj = diff - diff.dot(d1n) * d1n;
+            if (proj.norm() < eps) coincident = true;
+            if (coincident) {
+                result.intersects = true;
+                result.lines = {l1};
+                result.description = "Lines are coincident";
+            } else {
+                result.description = "Lines are parallel";
+            }
+            return result;
+        }
+        // Not parallel: solve for intersection using closest point method
         auto p1 = l1.point1().coords;
         auto d1 = l1.direction();
         auto p2 = l2.point1().coords;
@@ -145,41 +178,43 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& l1, const Line<T, N>& l
         T a = d1.dot(d1), b = d1.dot(d2), c = d2.dot(d2);
         T d = d1.dot(r), e = d2.dot(r);
         T denom = a * c - b * b;
-
-        if (std::abs(denom) < tol.evaluateEpsilon(scale)) {
-            // Lines are parallel — check if they are coincident
-            auto diff = l2.point1().coords - l1.point1().coords;
-            T eps = tol.evaluateEpsilon(scale);
-
-            bool coincident = false;
-            if (diff.norm() < eps) {
-                coincident = true;
-            } else {
-                T dot = diff.normalized().dot(l1.direction().normalized());
-                coincident = std::abs(std::abs(dot) - 1.0) < eps;
-            }
-
-            if (coincident) {
-                result.intersects = true;
-                result.lines = {l1};
-                result.description = "Lines are coincident";
-            } else {
-                result.description = "Lines are parallel";
-            }
-            return result;
-        }
         T t1 = (b * e - c * d) / denom;
         T t2 = (a * e - b * d) / denom;
         Point<T, N> pt1(p1 + t1 * d1);
         Point<T, N> pt2(p2 + t2 * d2);
         T dist = (pt1 - pt2).norm();
-        if (dist > tol.evaluateEpsilon(dist)) {
+        if (dist > tol.absTol + tol.evaluateEpsilon(scale)) {
+            // Nearly skew lines: stabilize using midpoint
+            Point<T, N> mid((pt1.coords + pt2.coords) * T(0.5));
+            if (dist < tol.absTol * T(10) + tol.evaluateEpsilon(scale)) {
+                result.intersects = true;
+                result.points = {mid};
+                result.description = "Lines nearly intersect (stabilized midpoint)";
+                ParamHit<T, N> hit;
+                hit.t_line = t1;
+                hit.u_curve = t2;
+                hit.v_surface = T(0);
+                hit.p = mid;
+                hit.tangential = false;
+                result.addHit(hit);
+                result.hits.push_back(hit);
+                return result;
+            }
             result.description = "Lines are skew (do not intersect)";
             return result;
         }
         result.intersects = true;
-        result.points = {pt1};
+        Point<T, N> mid((pt1.coords + pt2.coords) * T(0.5));
+        result.points = {mid};
         result.description = "Lines intersect at a point";
+        ParamHit<T, N> hit;
+        hit.t_line = t1;
+        hit.u_curve = t2;
+        hit.v_surface = T(0);
+        hit.p = mid;
+        hit.tangential = false;
+        result.addHit(hit);
+        result.hits.push_back(hit);
         return result;
     }
 
@@ -193,7 +228,7 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& l1, const Line<T, N>& l
         auto diff = p2 - p1;
 
         T dot_dir = d1.dot(d2);
-        T eps = tol.evaluateEpsilon(scale);
+        T eps = tol.absTol + tol.evaluateEpsilon(scale);
 
         if (std::abs(std::abs(dot_dir) - 1) < eps) {
             // Lines are parallel, check if coincident
@@ -242,7 +277,7 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& l1, const Line<T, N>& l
         Point<T, N> pt2 = Point<T, N>(p2 + t(1, 0) * d2);
         T dist = (pt1 - pt2).norm();
 
-        if (dist > tol.evaluateEpsilon(dist)) {
+        if (dist > tol.absTol + tol.evaluateEpsilon(scale)) {
             result.description = "Lines do not intersect";
             return result;
         }
@@ -883,21 +918,39 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Plane<T, N>
     const auto& b = plane.base.coords;
 
     T scale = d.norm() + n.norm();
-    T eps = tol.evaluateEpsilon(scale);
+
+    // Degenerate normal or direction check
+    if (n.norm() < tol.evaluateEpsilon(scale) || d.norm() < tol.evaluateEpsilon(scale)) {
+        result.description = "Degenerate plane or line direction";
+        return result;
+    }
+
+    // Use tolerance model for angular threshold
+    T angularTol = tol.absTol / std::max(scale, T(1));
+    T distTol = tol.absTol * scale * tol.evalFactor * T(10);
 
     if constexpr (N == 3) {
         // 3D fast path: geometric intersection
         T denom = n.dot(d);
-        if (std::abs(denom) < eps) {
+        if (std::abs(n.dot(d.normalized())) < angularTol) {
+            // Near-parallel or coincident handling
             T dist = n.dot(p0 - b);
-            if (std::abs(dist) < eps) {
+            // 1. Coincident case: explicit handling
+            if (std::abs(dist) < tol.absTol + tol.evaluateEpsilon(scale)) {
+                result.points.clear();
+                result.lines = { line };
                 result.intersects = true;
-                result.lines = {line};
                 result.description = "Line lies in plane (coincident)";
-            } else {
-                result.description = "Line is parallel to plane";
+                return result;
             }
-            return result;
+            // 2. Near-parallel case: accept only if both nearly parallel and within distance tolerance
+            if (std::abs(dist) < distTol) {
+                // Accept very shallow intersection within tolerance and proceed
+            } else {
+                result.description = "Line is nearly parallel but offset";
+                result.intersects = false;
+                return result;
+            }
         }
         T t = -n.dot(p0 - b) / denom;
         Point<T, 3> pt(p0 + t * d);
@@ -908,16 +961,25 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Plane<T, N>
     } else {
         // Generic ND implementation
         T denom = n.dot(d);
-        if (std::abs(denom) < eps) {
+        if (std::abs(n.dot(d.normalized())) < angularTol) {
+            // Near-parallel or coincident handling
             T dist = n.dot(p0 - b);
-            if (std::abs(dist) < eps) {
+            // 1. Coincident case: explicit handling
+            if (std::abs(dist) < tol.absTol + tol.evaluateEpsilon(scale)) {
+                result.points.clear();
+                result.lines = { line };
                 result.intersects = true;
-                result.lines = {line};
                 result.description = "Line lies in plane (coincident)";
-            } else {
-                result.description = "Line is parallel to plane";
+                return result;
             }
-            return result;
+            // 2. Near-parallel case: accept only if both nearly parallel and within distance tolerance
+            if (std::abs(dist) < distTol) {
+                // Accept very shallow intersection within tolerance and proceed
+            } else {
+                result.description = "Line is nearly parallel but offset";
+                result.intersects = false;
+                return result;
+            }
         }
         T t = -n.dot(p0 - b) / denom;
         Point<T, N> pt(p0 + t * d);
@@ -948,36 +1010,61 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Segment<T, 
     const auto& A = seg.start.coords;
     const auto& B = seg.end.coords;
     const auto segDir = B - A;
+    T dirNorm = dir.norm();
+    T segNorm = segDir.norm();
+    T sepNorm = (P0 - A).norm();
+    // Adaptive scale for tolerance model (mirrors line–line/plane)
+    T scale = dirNorm + segNorm + sepNorm;
+    T angularTol = tol.evaluateEpsilon(std::max(scale, T(1)));
+    // Compute normalized directions
+    Eigen::Matrix<T, N, 1> d1n = dir;
+    if (dirNorm > 0) d1n /= dirNorm;
 
-    // Solve for t (line) and u (segment) such that P0 + t*dir = A + u*segDir
+    Eigen::Matrix<T, N, 1> d2n = segDir;
+    if (segNorm > 0) d2n /= segNorm;
+
+    T cosTheta = std::abs(d1n.dot(d2n));
+    T sinTheta = std::sqrt(std::max(T(0), T(1) - cosTheta * cosTheta));
+    if (sinTheta < angularTol) {
+        // Nearly parallel: project segment start onto line and check separation
+        Eigen::Matrix<T, N, 1> diff = A - P0;
+        Eigen::Matrix<T, N, 1> proj = diff - diff.dot(d1n) * d1n;
+        T eps = tol.absTol + tol.evaluateEpsilon(scale);
+        if (proj.norm() < eps) {
+            // Coincident within tolerance
+            result.intersects = true;
+            result.lines = { line };
+            result.description = "Line and segment are coincident within tolerance";
+        } else {
+            result.description = "Lines nearly parallel (no intersection)";
+        }
+        return result;
+    }
+    // Not parallel: solve for intersection
     Eigen::Matrix<T, N, 2> A_mat;
     for (int i = 0; i < N; ++i) {
         A_mat(i, 0) = dir[i];
         A_mat(i, 1) = -segDir[i];
     }
     Eigen::Matrix<T, N, 1> b = A - P0;
-
     Eigen::Matrix<T, 2, 1> x = A_mat.colPivHouseholderQr().solve(b);
     T t = x(0, 0);
     T u = x(1, 0);
-
     // Check if intersection lies within segment
-    if (u < -tol.evaluateEpsilon(1.0) || u > 1.0 + tol.evaluateEpsilon(1.0)) {
-        result.description = "Line and segment do not intersect (outside segment bounds)";
+    if (u < -tol.evaluateEpsilon(std::max(scale, T(1))) || u > 1.0 + tol.evaluateEpsilon(std::max(scale, T(1)))) {
+        result.description = "Intersection outside segment bounds";
         return result;
     }
-
     Point<T, N> P_int(P0 + t * dir);
     Point<T, N> S_int(A + u * segDir);
-
-    if ((P_int - S_int).norm() <= tol.evaluateEpsilon((P_int - S_int).norm())) {
+    T dist = (P_int - S_int).norm();
+    if (dist <= tol.absTol + tol.evaluateEpsilon(scale)) {
         result.intersects = true;
         result.points = {P_int};
         result.description = "Line intersects segment at a point";
     } else {
         result.description = "Line and segment are skew (no intersection)";
     }
-
     return result;
 }
 
@@ -988,26 +1075,62 @@ template <typename T, int N>
 LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Face<T, N>& face,
                                       const Tolerance& tol = Tolerance()) {
     LineIntersectionResult<T, N> result;
-
-    // First, intersect with the face’s supporting plane
+    // Compute scale for tolerance
+    const auto& n = face.normal;
+    const auto& d = line.direction();
+    const auto& p0 = line.point1().coords;
+    const auto& b = face.base.coords;
+    T scale = d.norm() + n.norm() + (p0 - b).norm();
+    T angularTol = tol.evaluateEpsilon(std::max(scale, T(1)));
+    // Compute angle between line and face normal
+    Eigen::Matrix<T, N, 1> d_hat = (d.norm() > 0) ? d.normalized() : d;
+    Eigen::Matrix<T, N, 1> n_hat = (n.norm() > 0) ? n.normalized() : n;
+    T cosTheta = std::abs(n_hat.dot(d_hat));
+    T sinTheta = std::sqrt(std::max(T(0), T(1) - cosTheta * cosTheta));
+    // Intersect with face plane using angular tolerance model
     Plane<T, N> facePlane(face.base, face.normal);
+    // Use same logic as line-plane: check for near-parallel
+    if (sinTheta < angularTol) {
+        // Near-parallel: check if line lies in plane (coincident)
+        T dist = n.dot(p0 - b);
+        T eps = tol.absTol + tol.evaluateEpsilon(scale);
+        if (std::abs(dist) < eps) {
+            // Coincident: infinite intersection (line in plane)
+            // Only mark as intersecting if the segment of the line overlaps the face polygon
+            // We can treat as "coincident within tolerance"
+            result.intersects = true;
+            result.lines = { line };
+            result.description = "Line is coincident with face plane (within tolerance)";
+            return result;
+        } else {
+            result.description = "Lines nearly parallel (no intersection with face plane)";
+            return result;
+        }
+    }
+    // Not parallel: intersect line with plane
     auto planeRes = intersect(line, facePlane, tol);
     if (!planeRes.intersects || planeRes.points.empty()) {
         result.description = "Line does not intersect face plane";
         return result;
     }
-
     Point<T, N> candidate = planeRes.points[0];
-
+    // If line is nearly parallel, only accept if offset is within tolerance
+    if (sinTheta < angularTol * T(10)) {
+        // Extra check: only continue to polygon test if offset is within tol.absTol + tol.evaluateEpsilon(scale)
+        T dist = n.dot(p0 - b);
+        if (std::abs(dist) > tol.absTol + tol.evaluateEpsilon(scale)) {
+            result.description = "Line nearly parallel to face plane and offset exceeds tolerance";
+            return result;
+        }
+    }
     // Check if intersection point lies within the face polygon
     if (intersect(candidate, face, tol).intersects) {
         result.intersects = true;
         result.points = {candidate};
         result.description = "Line intersects face at a point";
     } else {
-        result.description = "Line intersects face plane but outside bounds";
+        result.description = "Line intersects face plane but outside face bounds";
     }
-
     return result;
 }
 
