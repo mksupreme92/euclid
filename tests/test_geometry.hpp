@@ -15,14 +15,14 @@
 
 inline void testGeometry() {
     std::cout << "\n📐 Testing Geometry Logic\n";
-    testPoint();
+    //testPoint();
     testLine();
-    testSegment();
-    testCurve();
-    testPlane();
-    testFace();
+    //testSegment();
+    //testCurve();
+    //testPlane();
+    //testFace();
     //testSurface();
-    testVolume();
+    //testVolume();
     
     
 

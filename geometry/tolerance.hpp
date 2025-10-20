@@ -18,7 +18,7 @@ struct Tolerance {
 
     // Constructor with default values
     Tolerance(double absT = 1e-6, double relT = 1e-9,
-              double paramT = 1e-8, double evalF = 1.0)
+              double paramT = 1e-9, double evalF = 1.0)
         : absTol(absT), relTol(relT), paramTol(paramT), evalFactor(evalF) {}
 
     // Returns the scale-aware epsilon for numeric comparisons, with a minimum epsilon floor

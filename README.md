@@ -6,7 +6,7 @@
 
 ## ⚙️ Core Infrastructure
 
-- [x] `Toleraance Model`
+- [x] `Tolerance Model`
 
 ## 📐 Geometry Primitives
 

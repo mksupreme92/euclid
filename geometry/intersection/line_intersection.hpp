@@ -78,7 +78,7 @@ inline std::tuple<bool, T, T> rayAABBInterval(const Eigen::Matrix<T, N, 1>& rayO
 // Line Intersection Result
 // ======================================================
 template <typename T, int N>
-struct LineIntersectionResult : public IntersectionResult {
+struct LineIntersectionResult : public IntersectionResult<T, N> {
     std::vector<Point<T, N>> points; // intersection points (if any)
     std::vector<Line<T, N>> lines;   // intersection lines (if any)
 
@@ -86,7 +86,7 @@ struct LineIntersectionResult : public IntersectionResult {
 
     LineIntersectionResult(bool intersects, const std::vector<Point<T, N>>& pts = {},
                            const std::vector<Line<T, N>>& lns = {}, std::string desc = "")
-        : IntersectionResult{intersects, desc}, points(pts), lines(lns) {}
+        : IntersectionResult<T, N>{intersects, desc}, points(pts), lines(lns) {}
 };
 
 // ======================================================
@@ -259,132 +259,243 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& l1, const Line<T, N>& l
 // ======================================================
 template <typename T, int N>
 LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Curve<T, N>& c,
-                                      const Tolerance& tol = Tolerance(), int max_samples = -1) {
+                                       const Tolerance& tol = Tolerance()) {
     LineIntersectionResult<T, N> result;
 
-    // domain of curve
+    // Domain of curve
     auto domain = c.domain();
-    T t0 = domain.first.first;
-    T t1 = domain.first.second;
-    if (t1 <= t0) return result;
+    T u0 = domain.first;
+    T u1 = domain.second;
+    if (u1 <= u0) { result.description = "Empty curve domain"; return result; }
 
-    // adaptive sample count based on curve extent and tolerance
-    T extent = std::abs(t1 - t0);
-    T eps = tol.evaluateEpsilon(extent);
-    int samples = max_samples > 0 ? max_samples : std::max(20, static_cast<int>(std::min(200.0, std::max(20.0, (double)(extent / eps) * 5.0))));
-
-    // ensure the three canonical samples exist: t0, mid, t1
-    std::vector<T> sampled_ts;
-    sampled_ts.reserve(samples);
-    sampled_ts.push_back(t0);
-    sampled_ts.push_back((t0 + t1) / 2);
-    sampled_ts.push_back(t1);
-
-    for (int i = 0; i < samples; ++i) {
-        T uu = t0 + (t1 - t0) * static_cast<T>(i) / static_cast<T>(samples - 1);
-        // avoid duplicating the three canonical samples
-        if (std::abs(uu - t0) < eps || std::abs(uu - t1) < eps || std::abs(uu - (t0 + t1) / 2) < eps) continue;
-        sampled_ts.push_back(uu);
+    const auto& P0  = line.point1().coords;
+    const auto  dir = line.direction();
+    const T dir_norm2 = dir.squaredNorm();
+    if (dir_norm2 < tol.evaluateEpsilon(std::max(dir.norm(), T(1)))) {
+        result.description = "Line direction too small (degenerate)";
+        return result;
     }
 
-    // Closest projection onto line helper
-    const auto& P0 = line.point1().coords;
-    const auto dir = line.direction();
+    // ----------------------------------------------
+    // Build a unit vector n orthogonal to dir for signed distance s(u) = n·(C(u)-P0)
+    // ----------------------------------------------
+    Eigen::Matrix<T, N, 1> e = dir / std::sqrt(dir_norm2);
+    Eigen::Matrix<T, N, 1> a = Eigen::Matrix<T, N, 1>::Zero();
+    // pick an axis least aligned with e
+    int bestAxis = 0; T minAbs = std::numeric_limits<T>::infinity();
+    for (int i = 0; i < N; ++i) {
+        T val = std::abs(e[i]);
+        if (val < minAbs) { minAbs = val; bestAxis = i; }
+    }
+    a[bestAxis] = T(1);
+    Eigen::Matrix<T, N, 1> n = a - (a.dot(e)) * e; // Gram-Schmidt
+    T n_norm = n.norm();
+    if (n_norm < std::numeric_limits<T>::epsilon()) {
+        // fallback: choose next axis
+        int alt = (bestAxis + 1) % N; a.setZero(); a[alt] = T(1);
+        n = a - (a.dot(e)) * e; n_norm = n.norm();
+    }
+    if (n_norm == T(0)) { n = e; n_norm = T(1); } // degenerate fallback
+    n /= n_norm;
 
-    T bestDist = std::numeric_limits<T>::infinity();
-    T best_u = t0;
-    T best_t = T(0);
-    Point<T, N> best_pt = c.evaluate(t0);
+    // ----------------------------------------------
+    // Hybrid baseline + progressive curvature refinement
+    // ----------------------------------------------
+    T extent = std::abs(u1 - u0);
 
-    for (size_t i = 0; i < sampled_ts.size(); ++i) {
-        T u = sampled_ts[i];
-        Point<T, N> cpt = c.evaluate(u);
-        // projector parameter t along line
-        T proj_t = dir.dot(cpt.coords - P0) / dir.squaredNorm();
-        Point<T, N> lpt(P0 + proj_t * dir);
-        T dist = (cpt - lpt).norm();
-        if (dist < bestDist) {
-            bestDist = dist;
-            best_u = u;
-            best_t = proj_t;
-            best_pt = cpt;
+    // Efficient curvature-aware adaptive cap (bounded)
+    T curvatureIntegral = std::clamp(c.evaluateIntegral(tol, 64), T(1e-6), T(1e3));
+
+    // Hybrid curvature + tolerance scaling (Parasolid-style heuristic)
+    int base_divs = std::max(64, int(std::min(
+        extent / tol.paramTol / 4,
+        std::clamp(512.0 * (1.0 + std::sqrt(curvatureIntegral)), 64.0, 8192.0)
+    )));
+
+    std::vector<T> samplePoints;
+    samplePoints.reserve(base_divs + 1);
+    for (int i = 0; i <= base_divs; ++i) {
+        samplePoints.push_back(u0 + (u1 - u0) * (T(i) / base_divs));
+    }
+
+    // Curvature estimator for adaptive refinement
+    auto curvatureAt = [&](T u) {
+        const T h = std::max(tol.paramTol * extent, T(1e-6));
+        auto C0 = c.evaluate(u).coords;
+        auto Cp = c.evaluate(std::min(u1, u + h)).coords;
+        auto Cm = c.evaluate(std::max(u0, u - h)).coords;
+        Eigen::Matrix<T, N, 1> second = (Cp - 2 * C0 + Cm) / (h * h);
+        return second.norm();
+    };
+
+    auto shouldRefine = [&](T a, T b) {
+        T ka = curvatureAt(a);
+        T kb = curvatureAt(b);
+        T kmax = std::max(ka, kb);
+        T segLen = std::abs(b - a);
+        return (kmax * segLen) > (tol.paramTol * extent * tol.evalFactor);
+    };
+
+    // Progressive curvature-based refinement (3 passes)
+    for (int pass = 0; pass < 3; ++pass) {
+        std::vector<T> newPoints;
+        newPoints.reserve(samplePoints.size() / 2);
+        for (size_t i = 0; i + 1 < samplePoints.size(); ++i) {
+            T a = samplePoints[i];
+            T b = samplePoints[i + 1];
+            if (shouldRefine(a, b)) {
+                T mid = (a + b) * T(0.5);
+                newPoints.push_back(mid);
+            }
+        }
+        if (newPoints.empty()) break;
+        samplePoints.insert(samplePoints.end(), newPoints.begin(), newPoints.end());
+        std::sort(samplePoints.begin(), samplePoints.end());
+        samplePoints.erase(std::unique(samplePoints.begin(), samplePoints.end(), [&](T x, T y){ return std::abs(x - y) < tol.paramTol; }), samplePoints.end());
+    }
+
+    // Compute signed distances s(u)
+    std::vector<T> svals;
+    svals.reserve(samplePoints.size());
+    for (T uu : samplePoints) {
+        svals.push_back(n.dot(c.evaluate(uu).coords - P0));
+    }
+
+    // Bracket intervals where sign changes or near-zero values occur (robust version)
+    struct Bracket { T a, b; };
+    std::vector<Bracket> brackets;
+    T sTol = tol.evaluateEpsilon(std::max({extent, P0.norm(), dir.norm()}));
+    for (size_t i = 0; i + 1 < samplePoints.size(); ++i) {
+        T uA = samplePoints[i], uB = samplePoints[i + 1];
+        T sA = svals[i], sB = svals[i + 1];
+        bool crosses = (sA * sB < T(0));
+        bool nearZero = (std::abs(sA) < sTol || std::abs(sB) < sTol);
+        if (crosses || nearZero) {
+            brackets.push_back({uA, uB});
         }
     }
 
-    // Newton-like refinement solving for (u, t) that minimize ||C(u) - L(t)||^2.
-    // Use numerical derivative for C'(u).
-    int max_iters = 20;
-    T alpha = T(0.2);
-    T prevDist = bestDist;
-    T u = best_u;
-    T t = best_t;
-
-    for (int iter = 0; iter < max_iters; ++iter) {
-        Point<T, N> Cu = c.evaluate(u);
-        // numerical derivative C'(u)
-        T h = std::max((T)1e-7, (t1 - t0) * (T)1e-6);
-        T up = std::min(t1, u + h);
-        T um = std::max(t0, u - h);
-        Eigen::Matrix<T, N, 1> deriv = (c.evaluate(up).coords - c.evaluate(um).coords) / (up - um);
-
-        // residual and jacobian
-        Eigen::Matrix<T, N, 1> R;
-        for (int i = 0; i < N; ++i) R(i, 0) = Cu.coords[i] - (P0[i] + t * dir[i]);
-
-        // J = [C'(u), -dir]
-        Eigen::Matrix<T, N, 2> J;
-        for (int i = 0; i < N; ++i) {
-            J(i, 0) = deriv[i];
-            J(i, 1) = -dir[i];
-        }
-
-        Eigen::Matrix<T, 2, 2> JTJ = J.transpose() * J;
-        Eigen::Matrix<T, 2, 1> JTR = J.transpose() * R;
-
-        // solve JTJ * delta = -JTR with damping fallback
-        Eigen::Matrix<T, 2, 1> delta;
-        Eigen::FullPivLU<Eigen::Matrix<T, 2, 2>> lu(JTJ);
-        if (lu.isInvertible()) {
-            delta = lu.solve(-JTR);
-        } else {
-            // damped least squares fallback
-            Eigen::Matrix<T, 2, 2> JTJ_damped = JTJ;
-            JTJ_damped(0, 0) += eps;
-            JTJ_damped(1, 1) += eps;
-            delta = JTJ_damped.colPivHouseholderQr().solve(-JTR);
-        }
-
-        T du = delta(0, 0);
-        T dt = delta(1, 0);
-
-        u += alpha * du;
-        t += alpha * dt;
-
-        // clamp
-        if (u < t0) u = t0;
-        if (u > t1) u = t1;
-
-        // recompute distance
-        Point<T, N> Cnew = c.evaluate(u);
-        Point<T, N> Lnew(P0 + t * dir);
-        T dist = (Cnew - Lnew).norm();
-
-        if (std::abs(dist - prevDist) < eps * 0.5) break;
-        prevDist = dist;
+    if (brackets.empty()) {
+        // fallback to midpoint if nothing found
+        brackets.push_back({(u0 + u1) * 0.5, (u0 + u1) * 0.5});
     }
 
-    // final check
-    Point<T, N> Cfinal = c.evaluate(u);
-    Point<T, N> Lfinal(P0 + t * dir);
-    T finalDist = (Cfinal - Lfinal).norm();
-    if (finalDist <= tol.evaluateEpsilon(std::max((T)1.0, finalDist))) {
+    // ----------------------------------------------
+    // Refine each bracket via Gauss–Newton on (u,t)
+    // ----------------------------------------------
+    auto geometric_scale = [&](T u_seed){
+        return std::max<T>({T(1), extent, c.evaluate(u_seed).coords.norm(), line.direction().norm()});
+    };
+
+    auto tangency_metric = [&](const Eigen::Matrix<T,N,1>& Cup) {
+        // Gram determinant of [Cup, dir]
+        T a2 = Cup.squaredNorm();
+        T b2 = dir_norm2;
+        T dot = Cup.dot(dir);
+        T area2 = a2 * b2 - dot * dot; // squared area of parallelogram
+        return std::sqrt(std::max<T>(area2, T(0)));
+    };
+
+    std::vector<ParamHit<T,N>> hits;
+    std::vector<Point<T,N>>    pts; // for dedup and legacy points
+
+    int max_iters = 25;
+    for (const auto& br : brackets) {
+        // Seed u at midpoint (or endpoint if degenerate)
+        T u = (br.a == br.b) ? br.a : (br.a + br.b) * T(0.5);
+        Eigen::Matrix<T,N,1> C0 = c.evaluate(u).coords;
+        T t = dir.dot(C0 - P0) / dir_norm2;
+
+        T prevDist = (C0 - (P0 + t * dir)).norm();
+        T scale    = geometric_scale(u);
+
+        for (int iter = 0; iter < max_iters; ++iter) {
+            // Numerical derivative C'(u)
+            T h = std::max(tol.paramTol, tol.evaluateEpsilon(std::abs(u) + T(1)));
+            T up = std::min(u1, u + h);
+            T um = std::max(u0, u - h);
+            Eigen::Matrix<T,N,1> Cup = (c.evaluate(up).coords - c.evaluate(um).coords) / (up - um);
+
+            Eigen::Matrix<T,N,1> Cu  = c.evaluate(u).coords;
+            Eigen::Matrix<T,N,1> L   = P0 + t * dir;
+            Eigen::Matrix<T,N,1> R   = Cu - L; // residual
+
+            // J = [C'(u), -dir]
+            Eigen::Matrix<T,N,2> J;
+            for (int k = 0; k < N; ++k) { J(k,0) = Cup[k]; J(k,1) = -dir[k]; }
+
+            Eigen::Matrix<T,2,2> JTJ = J.transpose() * J;
+            Eigen::Matrix<T,2,1> JTR = J.transpose() * R;
+
+            Eigen::Matrix<T,2,1> delta;
+            Eigen::FullPivLU<Eigen::Matrix<T,2,2>> lu(JTJ);
+            if (lu.isInvertible()) delta = lu.solve(-JTR);
+            else {
+                Eigen::Matrix<T,2,2> JTJ_d = JTJ;
+                T damping = tol.evaluateEpsilon(std::max(scale, T(1)));
+                JTJ_d(0,0) += damping; JTJ_d(1,1) += damping;
+                delta = JTJ_d.colPivHouseholderQr().solve(-JTR);
+            }
+
+            T du = delta(0,0);
+            T dt = delta(1,0);
+
+            // Simple adaptive damping
+            T alpha = (iter < 5) ? T(0.7) : T(0.9);
+            u += alpha * du;
+            t += alpha * dt;
+
+            // Clamp u to domain
+            if (u < u0) u = u0; if (u > u1) u = u1;
+
+            Eigen::Matrix<T,N,1> Cn = c.evaluate(u).coords;
+            Eigen::Matrix<T,N,1> Ln = P0 + t * dir;
+            T dist = (Cn - Ln).norm();
+            if (std::abs(dist - prevDist) < tol.evaluateEpsilon(std::max(dist, T(1)))) break;
+            prevDist = dist;
+        }
+
+        // Acceptance test
+        Eigen::Matrix<T,N,1> Cfin = c.evaluate(u).coords;
+        Eigen::Matrix<T,N,1> Lfin = P0 + t * dir;
+        T finalDist = (Cfin - Lfin).norm();
+        T scale_fin = geometric_scale(u);
+        T acceptTol = tol.absTol + tol.evaluateEpsilon(scale_fin) * T(5);
+        if (finalDist <= acceptTol) {
+            // Dedup by param and by world distance
+            Point<T,N> Pfin((Cfin + Lfin) * T(0.5));
+            bool duplicate = false;
+            T dedup_param = tol.paramTol * T(2);
+            T dedup_world = tol.evaluateEpsilon(scale_fin) * T(3);
+            for (size_t i = 0; i < hits.size(); ++i) {
+                if (std::abs(hits[i].u_curve - u) <= dedup_param) { duplicate = true; break; }
+                if ((pts[i].coords - Pfin.coords).norm() <= dedup_world) { duplicate = true; break; }
+            }
+            if (!duplicate) {
+                // Tangency classification
+                T h = std::max(tol.paramTol, tol.evaluateEpsilon(std::abs(u) + T(1)));
+                T up = std::min(u1, u + h);
+                T um = std::max(u0, u - h);
+                Eigen::Matrix<T,N,1> Cup = (c.evaluate(up).coords - c.evaluate(um).coords) / (up - um);
+                bool isTangential = tangency_metric(Cup) <= tol.evaluateEpsilon(scale_fin);
+
+                ParamHit<T,N> hit; hit.t_line = t; hit.u_curve = u; hit.v_surface = T(0); hit.p = Pfin; hit.tangential = isTangential;
+                // Fill both the new hits vector and legacy points for compatibility
+                result.addHit(hit);           // fills base points
+                result.points.push_back(Pfin); // fill derived points (kept in this struct)
+                hits.push_back(hit);
+                pts.push_back(Pfin);
+            }
+        }
+    }
+
+    if (!hits.empty()) {
         result.intersects = true;
-        result.points = {Point<T, N>( (Cfinal.coords + Lfinal.coords) * (T)0.5 )};
-        result.description = "Line intersects curve (within tolerance)";
+        if (hits.size() > 1) result.description = "Line intersects curve (multi-hit)";
+        else                 result.description = "Line intersects curve (single hit)";
     } else {
         result.description = "Line does not intersect curve";
     }
-
     return result;
 }
 

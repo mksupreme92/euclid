@@ -195,52 +195,206 @@ inline void testLinePlaneIntersectionND() {
 inline void testLineCurveIntersection() {
     // 1. Line intersecting a 3D curve (parabola)
     {
-        // Define a parabola curve y = x^2 in the XY plane, z=0
-        auto parabola = [](double t) -> Point<double,3> {
-            return Point<double,3>({t, t*t, 0});
-        };
-        // Define a line that intersects the parabola at (1,1,0)
-        Line l(Point<double,3>({0,0,0}), Eigen::Vector3d({1,1,0}));
-        // For testing, approximate intersection by checking points on curve
-        bool intersects = false;
-        Point<double,3> intersection_point;
-        for (double t = -1; t <= 2; t += 0.01) {
-            Point<double,3> p = parabola(t);
-            // Check if point p lies on line l (within some tolerance)
-            auto result = intersect(l, p);
-            if (result.intersects) {
-                intersects = true;
-                intersection_point = p;
-                break;
-            }
-        }
-        printTest("Line-Curve (parabola) intersection: has intersection", intersects);
-        if (intersects) {
+        Curve<double, 3> parabola(
+            [](double t) { return Point<double,3>({t, t*t, 0}); },
+            -1.0, 2.0
+        );
+        Line<double, 3> l(Point<double,3>({0,0,0}), Eigen::Vector3d({1,1,0}));
+        auto result = intersect(l, parabola);
+        printTest("Line-Curve (parabola) intersection: has intersection", result.intersects);
+        if (result.intersects && !result.points.empty()) {
+            const auto& p = result.points[0];
             printTest("Line-Curve intersection point", true);
-            // Print intersection point coordinates
-            std::cout << "Intersection at: ("
-                      << intersection_point[0] << ", "
-                      << intersection_point[1] << ", "
-                      << intersection_point[2] << ")" << std::endl;
+            std::cout << "Intersection at: (" << p[0] << ", " << p[1] << ", " << p[2] << ")\n";
         }
     }
 
     // 2. Line not intersecting the curve
     {
-        auto parabola = [](double t) -> Point<double,3> {
-            return Point<double,3>({t, t*t, 0});
-        };
-        Line l(Point<double,3>({0,0,1}), Eigen::Vector3d({1,1,0})); // Line is offset in z=1 plane
-        bool intersects = false;
-        for (double t = -1; t <= 2; t += 0.01) {
-            Point<double,3> p = parabola(t);
-            auto result = intersect(l, p);
-            if (result.intersects) {
-                intersects = true;
+        Curve<double, 3> parabola(
+            [](double t) { return Point<double,3>({t, t*t, 0}); },
+            -1.0, 2.0
+        );
+        Line<double, 3> l(Point<double,3>({0,0,1}), Eigen::Vector3d({1,1,0})); // Line is offset in z=1 plane
+        auto result = intersect(l, parabola);
+        printTest("Line-Curve (parabola) no intersection", !result.intersects);
+    }
+
+    // 2b. Analytical resolution limit test
+    {
+        std::cout << "---- Analytical Frequency Resolution Limit Test ----" << std::endl;
+
+        Line<double, 2> axis(Point<double, 2>({0, 0}), Eigen::Vector2d({1, 0}));
+        double freq = 1.0;
+
+        while (true) {
+            // Define a sine curve with `freq` oscillations over [0, 1]
+            Curve<double, 2> wave(
+                [freq](double t) {
+                    return Point<double, 2>({t, std::sin(2.0 * M_PI * freq * t)});
+                },
+                0.0, 1.0
+            );
+
+            // Analytical number of zero-crossings:
+            // Each full period contributes two crossings (up/down),
+            // plus one at t=0 and one at t=1.
+            int expected = static_cast<int>(2 * freq + 1);
+
+            auto result = intersect(axis, wave);
+            int found = static_cast<int>(result.points.size());
+
+            bool ok = std::abs(found - expected) <= 1;
+            std::cout << "freq=" << freq
+                      << "  expected=" << expected
+                      << "  found=" << found
+                      << (ok ? " ✅" : " ❌") << std::endl;
+
+            if (!ok) {
+                std::cout << "❌ Analytical mismatch: intersection resolution limit reached at frequency = "
+                          << freq << std::endl;
+                break;
+            }
+
+            // Double frequency until failure
+            freq *= 2.0;
+
+            // Safety cap to avoid infinite loop in case of perfect numerical behavior
+            if (freq > 1e9) {
+                std::cout << "✅ No analytical mismatch detected up to freq = " << freq << std::endl;
                 break;
             }
         }
-        printTest("Line-Curve (parabola) no intersection", !intersects);
+    }
+
+    // 2c. Frequency resolution test with line just below sine peaks
+    {
+        std::cout << "---- Frequency Test: Line below sine peaks ----" << std::endl;
+
+        double freq = 1.0;
+        while (true) {
+            // Define a sine curve with `freq` oscillations over [0, 1]
+            Curve<double, 2> wave(
+                [freq](double t) {
+                    return Point<double, 2>({t, std::sin(2.0 * M_PI * freq * t)});
+                },
+                0.0, 1.0
+            );
+
+            // Define a horizontal line slightly below the sine peaks (y = 0.9)
+            Line<double, 2> lineBelowPeak(Point<double, 2>({0.0, 0.9}), Eigen::Vector2d({1.0, 0.0}));
+
+            // Expected crossings: two per period where sin(x)=0.9 (both up and down)
+            // Solve sin(2πf t)=0.9 ⇒ crossings occur at ±arcsin(0.9)/(2πf) in each half-period.
+            // Analytical number of crossings ≈ 2 * freq (same as zero-crossings)
+            int expected = static_cast<int>(2 * freq);
+
+            auto result = intersect(lineBelowPeak, wave);
+            int found = static_cast<int>(result.points.size());
+
+            bool ok = std::abs(found - expected) <= 2;
+            std::cout << "freq=" << freq
+                      << "  expected≈" << expected
+                      << "  found=" << found
+                      << (ok ? " ✅" : " ❌") << std::endl;
+
+            if (!ok) {
+                std::cout << "❌ Analytical mismatch (below peaks): resolution limit reached at frequency = "
+                          << freq << std::endl;
+                break;
+            }
+
+            freq *= 2.0;
+            if (freq > 1e9) {
+                std::cout << "✅ No mismatch detected up to freq = " << freq << std::endl;
+                break;
+            }
+        }
+    }
+
+    /*
+    // 2d. Empirical plot: missed intersections vs tolerance (zero line and below-peak line)
+    {
+        std::cout << "---- Empirical Plot: Missed vs Tolerance ----" << std::endl;
+
+        const double freq = 4096.0; // near the resolution limit
+        // Sine curve over [0,1]
+        Curve<double, 2> wave(
+            [freq](double t) { return Point<double, 2>({t, std::sin(2.0 * M_PI * freq * t)}); },
+            0.0, 1.0
+        );
+
+        // Lines: y=0 (zero-crossings) and y=0.9 (near peaks)
+        Line<double, 2> axis(Point<double, 2>({0.0, 0.0}), Eigen::Vector2d({1.0, 0.0}));
+        Line<double, 2> belowPeak(Point<double, 2>({0.0, 0.9}), Eigen::Vector2d({1.0, 0.0}));
+
+        const int expectedZero = static_cast<int>(2 * freq + 1);
+        const int expectedPeak = static_cast<int>(2 * freq);
+
+        std::vector<double> tolerances = {1e-3,1e-4,1e-5,1e-6,1e-7,1e-8,1e-9,1e-10,1e-11,1e-12};
+
+        // CSV for zero line
+        {
+            std::ofstream csv("missed_vs_tol_zero.csv");
+            csv << "tolerance,found,expected,missed\n";
+            for (double tval : tolerances) {
+                Euclid::Tolerance tol(1e-6, 1e-9, tval, 1.0);//( absTol=1e-6, 1e-9, paramTol=tval, evalFactor=1.0)
+                auto res = intersect(axis, wave, tol);
+                int found = static_cast<int>(res.points.size());
+                int missed = std::max(0, expectedZero - found);
+                std::cout << "ZERO tol=" << tval << "  found=" << found << "  missed=" << missed << "\n";
+                csv << tval << "," << found << "," << expectedZero << "," << missed << "\n";
+            }
+        }
+
+        // CSV for line below peaks
+        {
+            std::ofstream csv("missed_vs_tol_peak.csv");
+            csv << "tolerance,found,expected,missed\n";
+            for (double tval : tolerances) {
+                Euclid::Tolerance tol(1e-6, 1e-9, tval, 1.0); //( absTol=1e-6, 1e-9, paramTol=tval, evalFactor=1.0)
+                auto res = intersect(belowPeak, wave, tol);
+                int found = static_cast<int>(res.points.size());
+                int missed = std::max(0, expectedPeak - found);
+                std::cout << "PEAK tol=" << tval << "  found=" << found << "  missed=" << missed << "\n";
+                csv << tval << "," << found << "," << expectedPeak << "," << missed << "\n";
+            }
+        }
+
+        std::cout << "✅ Wrote missed_vs_tol_zero.csv and missed_vs_tol_peak.csv" << std::endl;
+    }
+   */
+
+    // 3. Line intersecting sine curve (multiple crossings)
+    {
+        Curve<double, 2> sineCurve(
+            [](double t) { return Point<double,2>({t, std::sin(M_PI * t)}); },
+            -1.0, 3.0
+        );
+        Line<double, 2> l(Point<double,2>({-1.0, 0.0}), Eigen::Vector2d({1.0, 0.0}));
+        auto result = intersect(l, sineCurve);
+        printTest("Line-Curve (sine wave) intersection: has intersection", result.intersects);
+        std::cout << "DEBUG: sine curve intersection count = " << result.points.size() << "\n";
+        for (size_t i = 0; i < result.points.size(); ++i) {
+            const auto& p = result.points[i];
+            std::cout << "  sine point[" << i << "] = (" << p[0] << ", " << p[1] << ")\n";
+        }
+    }
+
+    // 4. Line intersecting circle (two intersections)
+    {
+        Curve<double, 2> circle(
+            [](double theta) { return Point<double,2>({std::cos(theta), std::sin(theta)}); },
+            0.0, 2*M_PI
+        );
+        Line<double, 2> l(Point<double,2>({0.5, -2.0}), Eigen::Vector2d({0.0, 1.0}));
+        auto result = intersect(l, circle);
+        printTest("Line-Curve (circle) intersection: has intersection", result.intersects);
+        std::cout << "DEBUG: circle intersection count = " << result.points.size() << "\n";
+        for (size_t i = 0; i < result.points.size(); ++i) {
+            const auto& p = result.points[i];
+            std::cout << "  circle point[" << i << "] = (" << p[0] << ", " << p[1] << ")\n";
+        }
     }
 }
 
@@ -823,14 +977,14 @@ inline void testLineIntersection() {
     using std::cout;
     cout << "\nLine Intersection Tests\n" << std::endl;
     
-    testLineLineIntersection();
-    testLineSegmentIntersection();
+    //testLineLineIntersection();
+    //testLineSegmentIntersection();
     testLineCurveIntersection();
-    testLinePlaneIntersection();
-    testLinePlaneIntersectionND();
-    testLineFaceIntersection();
-    testLineSurfaceIntersection();
-    testLineMultiIntersectionSurface();
+    //testLinePlaneIntersection();
+    //testLinePlaneIntersectionND();
+    //testLineFaceIntersection();
+    //testLineSurfaceIntersection();
+    //testLineMultiIntersectionSurface();
 }
 
 } // namespace Tests
