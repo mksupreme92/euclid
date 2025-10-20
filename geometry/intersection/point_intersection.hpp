@@ -10,12 +10,12 @@ namespace Euclid::Geometry {
 
 // Specialized intersection result for point intersections
 template <typename T, int N>
-struct PointIntersectionResult : public IntersectionResult {
+struct PointIntersectionResult : public Euclid::Geometry::IntersectionResult<T, N> {
     std::vector<Point<T, N>> points;
     PointIntersectionResult(bool inter, const std::string& desc)
-        : IntersectionResult(inter, desc) {}
+        : Euclid::Geometry::IntersectionResult<T, N>(inter, desc) {}
     PointIntersectionResult(bool inter, const std::string& desc, const std::vector<Point<T, N>>& pts)
-        : IntersectionResult(inter, desc), points(pts) {}
+        : Euclid::Geometry::IntersectionResult<T, N>(inter, desc), points(pts) {}
 };
 
 // ======================================================
