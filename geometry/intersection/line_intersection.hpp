@@ -729,7 +729,6 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, 
         return result;
     }
     const auto dir_hat = dir / dir_norm;
-    // Hint the surface BVH/normal orientation with the ray direction for stable signed distances
     s.setBVHDirectionHint(dir_hat);
 
     // Estimate extent using surface bounding box if available, else use domain extents
@@ -739,19 +738,28 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, 
     T u_extent = std::abs(u1 - u0);
     T v_extent = std::abs(v1 - v0);
     T surface_extent = std::max(u_extent, v_extent);
-    // Try to get a bounding box (if implemented for Surface)
     T t_min = -10 * surface_extent, t_max = 10 * surface_extent;
 
-    // Hint the surface BVH/normal orientation with the ray direction for stable signed distances
-    s.setBVHDirectionHint(dir_hat);
+    // Set up min step sizes based on tolerance model
+    T min_step_u = tol.paramTol;
+    T min_step_v = tol.paramTol;
+    // Optionally, relate to world epsilon if surface_extent is large
+    min_step_u = std::max(min_step_u, tol.evaluateEpsilon(surface_extent));
+    min_step_v = std::max(min_step_v, tol.evaluateEpsilon(surface_extent));
 
     // Refine BVH w.r.t. BOTH directions of the infinite line so patches behind P0 are not culled.
-    // This ensures torus-style 4-hit configurations (±(R±r)) are not lost by directional pruning.
     s.refineBVHNearRay(P0, dir_hat, tol);
     s.refineBVHNearRay(P0, -dir_hat, tol);
 
-    // Fetch BVH patches after symmetric refinement
-    auto patches = s.getBVH(max_grid > 0 ? max_grid : 40, tol, surface_extent, 9);
+    // Adaptive grid: based on tolerance model
+    int adaptive_grid = max_grid > 0
+        ? max_grid
+        : std::clamp(
+            int(1.0 / std::sqrt(tol.paramTol)),
+            40, 2000
+          );
+
+    auto patches = s.getBVH(adaptive_grid, tol, surface_extent, 9);
 
     // Build ray intervals from BVH patch AABBs
     std::vector<std::pair<T, T>> t_intervals;
@@ -776,24 +784,8 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, 
             merged_intervals.back().second = std::max(merged_intervals.back().second, iv.second);
         }
     }
-    
-    /*
-    // Debug: print BVH t-intervals for the ray
-    if constexpr (N == 3) { // only for 3D for clarity
-        std::cout << "DEBUG: BVH t-intervals for line-surface:" << '\n';
-        if (merged_intervals.empty()) {
-            std::cout << "DEBUG: No intervals found." << '\n';
-        } else {
-            for (const auto& iv : merged_intervals) {
-                std::cout << "DEBUG: [" << iv.first << ", " << iv.second << "]" << '\n';
-            }
-        }
-    }
-     */
 
-    // ======================================================
     // (u,v,t) Newton solver based on BVH patch midpoints
-    // ======================================================
     auto dedupHits = [&](std::vector<Point<T,N>>& hits, const Point<T,N>& newPt, T tol) {
         for (const auto& h : hits) {
             if ((h.coords - newPt.coords).norm() < tol) return false;
@@ -827,31 +819,32 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, 
     };
 
     std::vector<Point<T,N>> intersections;
-    T dedup_tol = tol_val * 1.5;
-    int max_iters = 20;
+    T dedup_tol = tol_val * std::max<T>(2.0, std::sqrt(1.0 / tol.paramTol));
 
     for (const auto& iv : merged_intervals) {
-        // Adaptive seeding: number of seeds based on interval length and surface extent
-        int num_seeds = std::max(5, (int)((iv.second - iv.first) / (surface_extent * 0.1)));
+        // Adaptive number of seeds per interval, proportional to tol
+        T interval_len = iv.second - iv.first;
+        int num_seeds = std::max(
+            1,
+            int(1.0 + interval_len * (1.0 / std::sqrt(tol.paramTol)))
+        );
         for (int i = 0; i < num_seeds; ++i) {
             T t_seed = iv.first + (iv.second - iv.first) * (i + 0.5) / num_seeds;
-            // Add random offset to seed point
             Eigen::Matrix<T,N,1> offset = Eigen::Matrix<T,N,1>::Random().normalized() * (tol_val * 10);
             Point<T,N> P_seed(P0 + t_seed * dir + offset);
-            // Point<T,N> P_seed(P0 + t_seed * dir);
             auto proj = s.projectPoint(P_seed.coords, tol);
             T u = proj.u;
             T v = proj.v;
             T t = t_seed;
 
-            for (int iter = 0; iter < max_iters; ++iter) {
+            // Newton iteration: break on tolerance convergence, not on fixed iteration count
+            while (true) {
                 Point<T,N> Spt = s.evaluate(u, v);
                 Eigen::Matrix<T,N,1> R = Spt.coords - (P0 + t * dir);
-                if (R.norm() < tol_val) break;
 
                 // Partial derivatives
-                T uh = std::max(tol_val, std::numeric_limits<T>::epsilon() * 10);
-                T vh = std::max(tol_val, std::numeric_limits<T>::epsilon() * 10);
+                T uh = std::max(min_step_u, std::numeric_limits<T>::epsilon() * 10);
+                T vh = std::max(min_step_v, std::numeric_limits<T>::epsilon() * 10);
                 Point<T,N> Sup = s.evaluate(std::min(u1,u+uh), v);
                 Point<T,N> Sum = s.evaluate(std::max(u0,u-uh), v);
                 Point<T,N> Svp = s.evaluate(u, std::min(v1,v+vh));
@@ -878,6 +871,14 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, 
                 // Clamp to domain
                 u = std::clamp(u, u0, u1);
                 v = std::clamp(v, v0, v1);
+
+                // Convergence condition based on tolerance model
+                bool converged =
+                    (std::abs(du) < 0.1 * min_step_u &&
+                     std::abs(dv) < 0.1 * min_step_v &&
+                     std::abs(dtau) < 0.1 * surface_extent) ||
+                    (R.norm() < tol.evaluateEpsilon(surface_extent));
+                if (converged) break;
             }
 
             // Check final residual
@@ -892,7 +893,6 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, 
         }
     }
 
-    // After all BVH operations are done, clear the BVH direction hint
     s.clearBVHDirectionHint();
     if (!intersections.empty()) {
         result.intersects = true;
