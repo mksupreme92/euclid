@@ -14,6 +14,23 @@
 
 namespace Euclid::Geometry {
 
+template<typename T>
+struct NumericalLimits {
+    T eps_world;
+    T eps_param;
+    T eps_det;
+    T eps_cross;
+
+    static NumericalLimits<T> derive(const Euclid::Tolerance& tol, T world_scale, T J = T(1)) {
+        T floor = std::max<T>(tol.paramTol, std::numeric_limits<T>::epsilon());
+        T eps_world = tol.evaluateEpsilon(std::max<T>(world_scale, floor));
+        T eps_param = std::max<T>(tol.paramTol, eps_world / std::max<T>(J, floor));
+        T eps_det   = std::max<T>(tol.evaluateEpsilon(std::max<T>(world_scale, floor)), T(1e-30));
+        T eps_cross = std::max<T>(tol.evaluateEpsilon(std::max<T>(world_scale, floor)), T(1e-20));
+        return {eps_world, eps_param, eps_det, eps_cross};
+    }
+};
+
 template<typename T, int N>
 class Surface {
 public:
@@ -50,8 +67,13 @@ public:
         if (!bvh_valid) generateBVH(40, tol);
         const auto& patches = bvh_patches;
         // Compute adaptive max_seeds based on tolerance
+        T world_scale_est = std::max<T>(
+            std::abs(surfaceDomain.first.second - surfaceDomain.first.first),
+            std::abs(surfaceDomain.second.second - surfaceDomain.second.first)
+        );
+        auto limits = NumericalLimits<T>::derive(tol, world_scale_est);
         int max_seeds = std::clamp<int>(
-            static_cast<int>(6 / std::max<T>(tol.paramTol, T(1e-3))),
+            static_cast<int>(6 / std::max<T>(tol.paramTol, limits.eps_param)),
             4, 32
         );
         // Compute distances from P to each patch AABB and keep a few best
@@ -97,34 +119,66 @@ private:
     mutable std::optional<Eigen::Matrix<T, N, 1>> bvh_dir_hint_world;
     // Cache of last successful projection seed (u,v)
     mutable std::optional<std::pair<T,T>> last_seed_uv;
+    // Cache for curvature gradient magnitudes at (u,v)
+    mutable std::map<std::pair<T,T>, T> curvature_cache;
 
     // --- Curvature proxy and gradient helpers (tolerance-aware) ---
     // Dimension-agnostic "curvature" proxy: sine of angle between Su and Sv (area of parallelogram normalized)
-    T curvatureProxy(T u, T v) const {
+    T curvatureProxy(T u, T v, const Euclid::Tolerance& tol) const {
         auto [Su, Sv] = evaluatePartials(u, v);
         T su2 = Su.squaredNorm();
         T sv2 = Sv.squaredNorm();
         T dot = Su.dot(Sv);
         T area2 = std::max<T>(0, su2 * sv2 - dot * dot); // = ||Su x Sv||^2 in 3D; Gram determinant in ND
-        Euclid::Tolerance tol;
-        T denom = std::sqrt(std::max<T>(su2, tol.evaluateEpsilon(su2))) * 
+        T denom = std::sqrt(std::max<T>(su2, tol.evaluateEpsilon(su2))) *
                   std::sqrt(std::max<T>(sv2, tol.evaluateEpsilon(sv2)));
         if (denom <= T(0)) return T(0);
         return std::sqrt(area2) / denom; // in [0,1]
     }
 
-    // Approximate |∇kappa| via central differences in param-space
+    // Approximate |∇kappa| via central differences in param-space, with conservative monotone-max caching
     T curvatureGradientMagnitude(T u, T v, T du, T dv, const Euclid::Tolerance& tol) const {
+        // Conservative caching: store the MAX observed gradient at quantized (u,v).
+        // Quantize keys to reduce cache misses from near-identical parameter pairs.
+        T world_scale_est = std::max<T>(
+            std::abs(surfaceDomain.first.second - surfaceDomain.first.first),
+            std::abs(surfaceDomain.second.second - surfaceDomain.second.first)
+        );
+        auto limits_q = NumericalLimits<T>::derive(tol, world_scale_est);
+        T qstep = std::max<T>(tol.paramTol, limits_q.eps_param);
+        T uq = std::round(u / qstep) * qstep;
+        T vq = std::round(v / qstep) * qstep;
+        auto key = std::make_pair(uq, vq);
         Euclid::Tolerance tlocal = tol;
         const T epsu = std::max<T>(std::abs(du), tlocal.paramTol);
         const T epsv = std::max<T>(std::abs(dv), tlocal.paramTol);
-        T ku_p = curvatureProxy(u + epsu, v);
-        T ku_m = curvatureProxy(u - epsu, v);
-        T kv_p = curvatureProxy(u, v + epsv);
-        T kv_m = curvatureProxy(u, v - epsv);
+
+        T ku_p = curvatureProxy(u + epsu, v, tol);
+        T ku_m = curvatureProxy(u - epsu, v, tol);
+        T kv_p = curvatureProxy(u, v + epsv, tol);
+        T kv_m = curvatureProxy(u, v - epsv, tol);
+
         T gu = std::abs(ku_p - ku_m) / (T(2) * epsu);
         T gv = std::abs(kv_p - kv_m) / (T(2) * epsv);
-        return gu + gv; // L1 blend; robust and cheap
+        T computed = gu + gv; // L1 blend; robust and cheap
+        // Optionally, smooth conservative value to ensure not rounded to zero prematurely
+        T scale_ref = std::max<T>(computed, tol.paramTol);
+        computed = std::max<T>(computed, tol.evaluateEpsilon(scale_ref));
+
+        auto it = curvature_cache.find(key);
+        if (it != curvature_cache.end()) {
+            if (computed < it->second) {
+                // Return the larger cached value to remain conservative
+                return it->second;
+            } else {
+                // Tighten the cache to the higher (more conservative) value
+                it->second = computed;
+                return computed;
+            }
+        } else {
+            curvature_cache[key] = computed;
+            return computed;
+        }
     }
 
 public:
@@ -152,15 +206,19 @@ public:
         return surfaceFunc(u, v);
     }
 
-    // Evaluate (Su, Sv) partial derivatives at (u,v)
+    // Evaluate (Su, Sv) partial derivatives at (u,v) with default tolerance
     std::pair<Eigen::Matrix<T, N, 1>, Eigen::Matrix<T, N, 1>> evaluatePartials(T u, T v) const {
+        Euclid::Tolerance tol;
+        return evaluatePartials(u, v, tol);
+    }
+
+    // Evaluate (Su, Sv) partial derivatives at (u,v) with provided tolerance
+    std::pair<Eigen::Matrix<T, N, 1>, Eigen::Matrix<T, N, 1>> evaluatePartials(T u, T v, const Euclid::Tolerance& tol) const {
         if constexpr (std::is_member_function_pointer_v<decltype(&Surface<T, N>::analyticalPartials)>) {
             // If analyticalPartials is overridden, use it
             return analyticalPartials(u, v);
         } else {
             // Fallback to numerical
-            // Default tolerance: use a reasonable default if not available
-            Euclid::Tolerance tol;
             return numericalPartials(u, v, tol);
         }
     }
@@ -184,21 +242,28 @@ public:
         // Step size is tol.paramTol * param extent, but not smaller than tol.paramTol itself
         T du = std::max(tol.paramTol * u_extent, tol.paramTol);
         T dv = std::max(tol.paramTol * v_extent, tol.paramTol);
-        // Clamp du/dv to not exceed a small fraction of the domain, for robustness
-        du = std::min(du, u_extent * T(1e-2));
-        dv = std::min(dv, v_extent * T(1e-2));
+        // Clamp du/dv to not exceed a tolerance-driven fraction of the domain, for robustness
+        auto limits = NumericalLimits<T>::derive(tol, std::max(u_extent, v_extent));
+        // derive a maximum fraction dynamically from tolerance and numeric precision
+        T max_frac = std::max<T>(
+            tol.paramTol,
+            limits.eps_param * T(10)
+        );
+        du = std::min(du, u_extent * max_frac);
+        dv = std::min(dv, v_extent * max_frac);
         // Central finite difference for each partial
         auto Su = (evaluate(u + du, v).coords - evaluate(u - du, v).coords) / (T(2) * du);
         auto Sv = (evaluate(u, v + dv).coords - evaluate(u, v - dv).coords) / (T(2) * dv);
         return {Su, Sv};
     }
 
-    // Evaluate surface normal at (u,v) (only for N==3)
-    PointType evaluateNormal(T u, T v) const {
+    // Evaluate surface normal at (u,v) (only for N==3), with provided tolerance
+    PointType evaluateNormal(T u, T v, const Euclid::Tolerance& tol) const {
         static_assert(N == 3, "evaluateNormal only makes sense for 3D surfaces");
-        auto [Su, Sv] = evaluatePartials(u, v);
+        auto [Su, Sv] = evaluatePartials(u, v, tol);
         auto nvec = Su.cross(Sv);
-        if (nvec.norm() == T(0)) {
+        // Use tolerance to check for degeneracy
+        if (nvec.norm() < tol.evaluateEpsilon(nvec.norm())) {
             // Degenerate, return PointType(Eigen::Matrix<T, N, 1>::Zero());
             return PointType(Eigen::Matrix<T, N, 1>::Zero());
         }
@@ -207,17 +272,24 @@ public:
 
     // Generalized principal normal in R^N using Gram–Schmidt and optional reference direction
     Eigen::Matrix<T, N, 1> principalNormal(T u, T v,
+                                           const Euclid::Tolerance& tol,
                                            const std::optional<Eigen::Matrix<T, N, 1>>& ref_dir_opt = std::nullopt) const
     {
-        Euclid::Tolerance tol;
-        T small = tol.evaluateEpsilon(T(1));
-        // Evaluate first-order partials
-        auto [Su_raw, Sv_raw] = evaluatePartials(u, v);
+        // Evaluate first-order partials with tolerance to keep step sizes consistent
+        auto [Su_raw, Sv_raw] = evaluatePartials(u, v, tol);
 
-        // Guard against degeneracy
+        // Local derivative scales
         T su = Su_raw.norm();
         T sv = Sv_raw.norm();
-        if (su < small && sv < small) {
+        T floor = tol.evaluateEpsilon(std::max({su, sv, tol.paramTol}));
+        T scale = std::max({su, sv, floor});
+
+        // Tolerance-scaled epsilons driven by local conditioning
+        T eps_dir   = tol.evaluateEpsilon(scale);                    // for vector magnitudes
+        T eps_cross = tol.evaluateEpsilon(std::max<T>(su * sv, tol.paramTol));  // for area / cross terms
+
+        // Guard against degeneracy
+        if (su <= eps_dir && sv <= eps_dir) {
             // Fallback: pick a canonical axis or ref_dir if provided
             Eigen::Matrix<T,N,1> n = ref_dir_opt ? *ref_dir_opt : Eigen::Matrix<T,N,1>::UnitX();
             if (n.norm() == T(0)) n = Eigen::Matrix<T,N,1>::UnitX();
@@ -226,11 +298,11 @@ public:
 
         // Gram–Schmidt to build an orthonormal basis of the tangent plane span{Su,Sv}
         Eigen::Matrix<T,N,1> e1, e2;
-        e1 = (su > small) ? (Su_raw / su) : Su_raw;
+        e1 = (su > eps_dir) ? (Su_raw / su) : Su_raw;
         // remove component of Sv along e1
         Eigen::Matrix<T,N,1> v2 = Sv_raw - (Sv_raw.dot(e1)) * e1;
         T v2n = v2.norm();
-        if (v2n < small) {
+        if (v2n <= eps_dir) {
             // Su and Sv nearly colinear; try a numerical perturbation by swapping roles
             // or create an arbitrary vector not parallel to e1
             Eigen::Matrix<T,N,1> arbit = Eigen::Matrix<T,N,1>::Zero();
@@ -241,18 +313,18 @@ public:
                 T val = std::abs(e1(k));
                 if (val < best_val) { best_val = val; best_k = k; }
             }
-            arbit(best_k) = T(1);
+            arbit(best_k) = tol.paramTol;
             v2 = arbit - (arbit.dot(e1)) * e1;
             v2n = v2.norm();
-            if (v2n < small) v2 = Eigen::Matrix<T,N,1>::UnitY(); // final fallback where available
+            if (v2n <= eps_dir) v2 = Eigen::Matrix<T,N,1>::UnitY(); // final fallback where available
             v2n = v2.norm();
         }
-        e2 = (v2n > small) ? (v2 / v2n) : v2;
+        e2 = (v2n > eps_dir) ? (v2 / v2n) : v2;
 
         if constexpr (N == 3) {
             auto n3 = e1.cross(e2);
             T nn = n3.norm();
-            if (nn <= small) {
+            if (nn <= eps_cross) {
                 // fallback to ref_dir or canonical axis
                 Eigen::Matrix<T,3,1> n = ref_dir_opt ? *ref_dir_opt : Eigen::Matrix<T,3,1>::UnitZ();
                 return n.normalized();
@@ -270,18 +342,18 @@ public:
             // Remove tangent components
             Eigen::Matrix<T,N,1> n = pref - (pref.dot(e1))*e1 - (pref.dot(e2))*e2;
             T nn = n.norm();
-            if (nn < small) {
+            if (nn <= eps_dir) {
                 // Try canonical axes to find a stable orthogonal direction
                 T best_norm = T(0);
                 Eigen::Matrix<T,N,1> best = Eigen::Matrix<T,N,1>::Zero();
                 for (int k=0; k<N; ++k) {
                     Eigen::Matrix<T,N,1> axis = Eigen::Matrix<T,N,1>::Zero();
-                    axis(k) = T(1);
+                    axis(k) = tol.paramTol;
                     Eigen::Matrix<T,N,1> cand = axis - (axis.dot(e1))*e1 - (axis.dot(e2))*e2;
                     T cn = cand.norm();
                     if (cn > best_norm) { best_norm = cn; best = cand; }
                 }
-                if (best_norm > T(0)) n = best; else n = pref; // ultimate fallback
+                if (best_norm > eps_dir) n = best; else n = pref; // ultimate fallback
             }
             n.normalize();
             // Align with preferred direction if provided
@@ -303,13 +375,14 @@ public:
             auto S = evaluate(r.u, r.v).coords;
             auto R = S - P; // residual
             T rn = R.norm();
-            if (rn <= tol.evaluateEpsilon(std::max<T>(rn, T(1)))) {
+            T ref_scale = std::max<T>(rn, tol.paramTol);
+            if (rn <= tol.evaluateEpsilon(ref_scale)) {
                 r.ok = true; r.signed_distance = rn;
                 r.surface_point = PointType(S);
                 r.iterations = it;
                 // Signed distance via principal normal aligned with any BVH hint
-                Eigen::Matrix<T,N,1> n = principalNormal(r.u, r.v, bvh_dir_hint_world);
-                if (n.norm() > T(0)) {
+                Eigen::Matrix<T,N,1> n = principalNormal(r.u, r.v, tol, bvh_dir_hint_world);
+                if (n.norm() > tol.evaluateEpsilon(std::max<T>(n.norm(), tol.paramTol))) {
                     r.signed_distance = (R.dot(n));
                 } else {
                     r.signed_distance = rn;
@@ -327,7 +400,7 @@ public:
             JTr(0) = Su.dot(R);
             JTr(1) = Sv.dot(R);
             // Solve JTJ * delta = -JTr (with tolerance-scaled Tikhonov for robustness)
-            const T scale_J = std::max<T>(JTJ(0,0) + JTJ(1,1), T(1));
+            const T scale_J = std::max<T>(JTJ(0,0) + JTJ(1,1), tol.paramTol);
             T lam = std::max<T>(tol.evaluateEpsilon(scale_J), T(1e-14));
             JTJ(0,0) += lam;
             JTJ(1,1) += lam;
@@ -335,28 +408,53 @@ public:
             // Determinant guard using tolerance-scaled epsilon
             const T det_eps = std::max<T>(tol.evaluateEpsilon(scale_J), T(1e-18));
             T det = JTJ(0,0)*JTJ(1,1) - JTJ(0,1)*JTJ(1,0);
-            if (std::abs(det) < det_eps) break;
+            if (std::abs(det) < std::max<T>(det_eps, tol.evaluateEpsilon(scale_J))) break;
             Eigen::Matrix<T,2,1> delta;
             delta(0) = (-JTr(0)*JTJ(1,1) + JTr(1)*JTJ(0,1)) / det;
             delta(1) = (-JTr(1)*JTJ(0,0) + JTr(0)*JTJ(1,0)) / det;
-            // Damped step
+            // Damped step with tolerance-driven adaptive scaling
             T step_scale = T(1);
-            // Backtracking if residual grows
-            for (int bs=0; bs<5; ++bs) {
-                T nu = r.u - step_scale*delta(0);
-                T nv = r.v - step_scale*delta(1);
+            T domain_extent = std::max<T>(
+                std::abs(surfaceDomain.first.second - surfaceDomain.first.first),
+                std::abs(surfaceDomain.second.second - surfaceDomain.second.first)
+            );
+            T step_min = std::max<T>(
+                tol.paramTol * T(0.25),
+                tol.evaluateEpsilon(domain_extent)
+            );
+            int max_backtrack = std::clamp<int>(int(std::ceil(-std::log2(double(std::max<T>(tol.paramTol * T(10), T(1e-16)))))), 3, 10);
+
+            for (int bs = 0; bs < max_backtrack; ++bs) {
+                T nu = r.u - step_scale * delta(0);
+                T nv = r.v - step_scale * delta(1);
                 auto Stry = evaluate(nu, nv).coords;
                 T rn_try = (Stry - P).norm();
-                if (rn_try < rn) { r.u = nu; r.v = nv; rn = rn_try; break; }
+
+                // Accept if residual decreases or the change is within tolerance noise (domain-scaled)
+                T domain_extent = std::max<T>(
+                    std::abs(surfaceDomain.first.second - surfaceDomain.first.first),
+                    std::abs(surfaceDomain.second.second - surfaceDomain.second.first)
+                );
+                if (rn_try < rn || std::abs(rn_try - rn) < tol.evaluateEpsilon(std::max<T>(rn, domain_extent))) {
+                    r.u = nu;
+                    r.v = nv;
+                    rn = rn_try;
+                    break;
+                }
                 step_scale *= T(0.5);
+                if (step_scale < step_min) {
+                    // Prevent stalling below parametric tolerance
+                    break;
+                }
             }
             // Convergence checks
-            if (std::abs(prev_norm - rn) <= tol.evaluateEpsilon(std::max<T>(rn, T(1)))) {
+            T ref_scale2 = std::max<T>(rn, tol.paramTol);
+            if (std::abs(prev_norm - rn) <= tol.evaluateEpsilon(ref_scale2)) {
                 prev_norm = rn; r.iterations = it+1;
                 r.ok = true; r.signed_distance = rn;
                 r.surface_point = PointType(evaluate(r.u, r.v).coords);
-                Eigen::Matrix<T,N,1> n = principalNormal(r.u, r.v, bvh_dir_hint_world);
-                if (n.norm() > T(0)) {
+                Eigen::Matrix<T,N,1> n = principalNormal(r.u, r.v, tol, bvh_dir_hint_world);
+                if (n.norm() > tol.evaluateEpsilon(std::max<T>(n.norm(), tol.paramTol))) {
                     r.signed_distance = ((evaluate(r.u, r.v).coords - P).dot(n));
                 } else {
                     r.signed_distance = rn;
@@ -368,7 +466,7 @@ public:
         // Finalize (may be not-ok)
         r.surface_point = PointType(evaluate(r.u, r.v).coords);
         {
-            Eigen::Matrix<T,N,1> n = principalNormal(r.u, r.v, bvh_dir_hint_world);
+            Eigen::Matrix<T,N,1> n = principalNormal(r.u, r.v, tol, bvh_dir_hint_world);
             if (n.norm() > T(0)) {
                 r.signed_distance = ((r.surface_point.coords - P).dot(n));
             } else {
@@ -402,9 +500,13 @@ public:
         // 2) Gather BVH seeds and try them (skip if they are very close to the warm-start to avoid duplicates)
         auto seeds = gatherSeedsFromBVHNearPoint(P, tol);
         for (auto [u0, v0] : seeds) {
-            // Skip near-duplicate seeds relative to the warm-start
-            if (best.ok && std::abs(u0 - best.u) < tol.evaluateEpsilon(T(1)) &&
-                           std::abs(v0 - best.v) < tol.evaluateEpsilon(T(1))) {
+            // Skip near-duplicate seeds relative to the warm-start using domain-scaled tolerance
+            T domain_extent = std::max<T>(
+                std::abs(surfaceDomain.first.second - surfaceDomain.first.first),
+                std::abs(surfaceDomain.second.second - surfaceDomain.second.first)
+            );
+            if (best.ok && std::abs(u0 - best.u) < tol.evaluateEpsilon(domain_extent) &&
+                           std::abs(v0 - best.v) < tol.evaluateEpsilon(domain_extent)) {
                 continue;
             }
             auto r = projectPointFromSeed(P, u0, v0, tol, max_iters);
@@ -437,12 +539,12 @@ public:
         if (out_v) *out_v = r.v;
 
         // Use principal normal with optional global sign hint for consistent signed distances
-        Eigen::Matrix<T,N,1> n = principalNormal(r.u, r.v, bvh_dir_hint_world);
+        Eigen::Matrix<T,N,1> n = principalNormal(r.u, r.v, tol, bvh_dir_hint_world);
         // Enforce normal alignment with BVH direction hint if present
         if (bvh_dir_hint_world && n.dot(*bvh_dir_hint_world) < T(0)) {
             n = -n;
         }
-        if (n.norm() > T(0)) {
+        if (n.norm() > tol.evaluateEpsilon(std::max<T>(n.norm(), tol.paramTol))) {
             return (P - r.surface_point.coords).dot(n);
         } else {
             // Fallback to unsigned distance if normal is degenerate
@@ -459,91 +561,7 @@ public:
         return Surface<T,N>(newFunc, surfaceDomain);
     }
 
-    // Sweep a cross-section along a spine curve to create a surface
-    template<typename Curve, typename CrossSectionFunc>
-    [[deprecated("sweepSurface is deprecated. Use B-rep extrude/sweep instead.")]]
-    static Surface<T, 3> sweepSurface(
-        const Curve& spineCurve,
-        const CrossSectionFunc& crossSectionFunc,
-        std::pair<std::pair<T, T>, std::pair<T, T>> domain = {})
-    {
-        T umin = spineCurve.domain().first;
-        T umax = spineCurve.domain().second;
 
-        if (domain.first.first == T() && domain.first.second == T() &&
-            domain.second.first == T() && domain.second.second == T()) {
-            domain = {{umin, T(0)}, {umax, T(1)}};
-        }
-
-        // --- Rotation-Minimizing Frame (RMF) ---
-        int samples = 500;
-        std::vector<T> uSamples(samples);
-        std::vector<Eigen::Matrix<T,3,1>> spinePoints(samples);
-        for(int i=0;i<samples;++i){
-            T uVal = umin + (umax-umin)*T(i)/(samples-1);
-            uSamples[i] = uVal;
-            spinePoints[i] = spineCurve.evaluate(uVal).coords;
-        }
-
-        std::vector<Eigen::Matrix<T,3,1>> tangents(samples);
-        std::vector<Eigen::Matrix<T,3,1>> normals(samples);
-        std::vector<Eigen::Matrix<T,3,1>> binormals(samples);
-
-        // Compute tangents
-        for(int i=0;i<samples;++i){
-            if(i<samples-1)
-                tangents[i] = (spinePoints[i+1]-spinePoints[i]).normalized();
-            else
-                tangents[i] = (spinePoints[i]-spinePoints[i-1]).normalized();
-        }
-
-        // Initialize first normal
-        Eigen::Matrix<T,3,1> arbitrary = Eigen::Matrix<T,3,1>::UnitY();
-        if(std::abs(tangents[0].dot(arbitrary)) > T(0.9)) arbitrary = Eigen::Matrix<T,3,1>::UnitX();
-        normals[0] = (arbitrary - tangents[0]*(tangents[0].dot(arbitrary))).normalized();
-        binormals[0] = tangents[0].cross(normals[0]).normalized();
-
-        // RMF propagation
-        for(int i=1;i<samples;++i){
-            Eigen::Matrix<T,3,1> vPrev = tangents[i-1];
-            Eigen::Matrix<T,3,1> vCurr = tangents[i];
-            Eigen::Matrix<T,3,1> axis = vPrev.cross(vCurr);
-            T axisNorm = axis.norm();
-            Euclid::Tolerance tol;
-            if(Euclid::equalWithinTolerance(axisNorm, T(0), tol, axisNorm)){
-                normals[i] = normals[i-1];
-                binormals[i] = binormals[i-1];
-                continue;
-            }
-            axis /= axisNorm;
-            T angle = std::acos(std::clamp(vPrev.dot(vCurr), T(-1), T(1)));
-            auto rotate = [&](const Eigen::Matrix<T,3,1>& vec){
-                Eigen::Matrix<T,3,1> rotated = vec*std::cos(angle) + axis.cross(vec)*std::sin(angle) + axis*(axis.dot(vec))*(1-std::cos(angle));
-                return rotated.normalized();
-            };
-            normals[i] = rotate(normals[i-1]);
-            binormals[i] = rotate(binormals[i-1]);
-        }
-
-        // Frame interpolation function
-        auto frameAt = [=](T uVal){
-            T tNorm = (uVal-umin)/(umax-umin);
-            int idx = std::min(int(tNorm*(samples-1)), samples-1);
-            return std::make_tuple(tangents[idx], normals[idx], binormals[idx]);
-        };
-
-        auto surfFunc = [spineCurve, crossSectionFunc, frameAt](T uVal, T vVal){
-            auto [tangent, normal, binormal] = frameAt(uVal);
-            Eigen::Matrix<T,3,1> center = spineCurve.evaluate(uVal).coords;
-
-            Point<T,2> cs = crossSectionFunc(vVal);
-
-            Eigen::Matrix<T,3,1> offset = normal*cs.coords(0) + binormal*cs.coords(1);
-            return Point<T,3>(center + offset);
-        };
-
-        return Surface<T,3>(surfFunc, domain);
-    }
 
     // Helper: Adaptive recursive patch subdivision for BVH (tolerance-aware, with optional direction hint)
     void subdividePatch(T umin, T umax, T vmin, T vmax,
@@ -552,6 +570,7 @@ public:
                         int budget,
                         bool have_dir, const Eigen::Matrix<T, N, 1>& dir_world) const
     {
+        auto limits = NumericalLimits<T>::derive(tol, world_scale);
         // Compute patch center and extents
         T uc = (umin + umax) / T(2);
         T vc = (vmin + vmax) / T(2);
@@ -564,8 +583,8 @@ public:
             int base_samples = 5;
             T G_center = curvatureGradientMagnitude(uc, vc, std::max<T>(du*0.5, tol.paramTol), std::max<T>(dv*0.5, tol.paramTol), tol);
             // Scale factor: higher curvature or tighter tolerance => more samples
-            T curvature_scale = std::clamp<T>(1 + G_center * 10, 1, 4);
-            T tol_scale = std::clamp<T>(1 / std::sqrt(std::max<T>(tol.paramTol, 1e-8)), 1, 4);
+            T curvature_scale = std::clamp<T>(1 + G_center * (1 / std::sqrt(std::max<T>(tol.paramTol, limits.eps_param))), 1, 4);
+            T tol_scale = std::clamp<T>(1 / std::sqrt(std::max<T>(tol.paramTol, limits.eps_param)), 1, 4);
             int adaptive_samples = std::clamp<int>(int(base_samples * 0.5 * (curvature_scale + tol_scale)), 5, 25);
 
             std::vector<PointType> samples;
@@ -595,7 +614,7 @@ public:
         // Global cap to prevent exponential explosion in highly oscillatory regions
         size_t MAX_PATCHES = static_cast<size_t>(
             std::clamp<T>(
-                T(4096) / std::max<T>(tol.paramTol, T(1e-8)),
+                T(4096) / std::max<T>(tol.paramTol, limits.eps_param),
                 T(1024), T(32768)
             ));
         if (bvh_patches.size() >= MAX_PATCHES) {
@@ -603,8 +622,8 @@ public:
             int base_samples = 5;
             T G_center = curvatureGradientMagnitude(uc, vc, std::max<T>(du*0.5, tol.paramTol), std::max<T>(dv*0.5, tol.paramTol), tol);
             // Scale factor: higher curvature or tighter tolerance => more samples
-            T curvature_scale = std::clamp<T>(1 + G_center * 10, 1, 4);
-            T tol_scale = std::clamp<T>(1 / std::sqrt(std::max<T>(tol.paramTol, 1e-8)), 1, 4);
+            T curvature_scale = std::clamp<T>(1 + G_center * (1 / std::sqrt(std::max<T>(tol.paramTol, limits.eps_param))), 1, 4);
+            T tol_scale = std::clamp<T>(1 / std::sqrt(std::max<T>(tol.paramTol, limits.eps_param)), 1, 4);
             int adaptive_samples = std::clamp<int>(int(base_samples * 0.5 * (curvature_scale + tol_scale)), 5, 25);
 
             std::vector<PointType> samples;
@@ -634,8 +653,8 @@ public:
         // World-space flatness test using an adaptive-sampled bbox
         int base_samples = 5;
         T G_center = curvatureGradientMagnitude(uc, vc, std::max<T>(du*0.5, tol.paramTol), std::max<T>(dv*0.5, tol.paramTol), tol);
-        T curvature_scale = std::clamp<T>(1 + G_center * 10, 1, 4);
-        T tol_scale = std::clamp<T>(1 / std::sqrt(std::max<T>(tol.paramTol, 1e-8)), 1, 4);
+        T curvature_scale = std::clamp<T>(1 + G_center * (1 / std::sqrt(std::max<T>(tol.paramTol, limits.eps_param))), 1, 4);
+        T tol_scale = std::clamp<T>(1 / std::sqrt(std::max<T>(tol.paramTol, limits.eps_param)), 1, 4);
         int adaptive_samples = std::clamp<int>(int(base_samples * 0.5 * (curvature_scale + tol_scale)), 5, 25);
         std::vector<PointType> samples;
         samples.reserve(adaptive_samples);
@@ -656,7 +675,21 @@ public:
             }
         }
         T bbox_diag = (maxPt.coords - minPt.coords).norm();
-        T world_eps = tol.evaluateEpsilon(world_scale > T(0) ? world_scale : T(1));
+
+        // Local Jacobian magnitude at center to relate param and world scales
+        auto [Su_c, Sv_c] = evaluatePartials(uc, vc);
+        T Jc = std::max(Su_c.norm(), Sv_c.norm());
+        // Tolerance-adaptive floor for Jacobian magnitude
+        {
+            T world_ref = std::max<T>(world_scale, tol.paramTol);
+            T eps_ref = tol.evaluateEpsilon(world_ref);
+            T J_floor = std::max<T>(tol.paramTol, eps_ref);
+            if (Jc <= J_floor) Jc = J_floor;
+        }
+
+        // Use Jc to set a stable local world scale before computing epsilon
+        T local_scale = std::max<T>(world_scale, std::max<T>(Jc, tol.paramTol));
+        T world_eps   = tol.evaluateEpsilon(local_scale);
 
         // Param-step for gradient probing: half patch, but not smaller than tolerance-induced param eps
         T param_eps = std::max(min_param_extent * T(0.5), tol.paramTol);
@@ -671,9 +704,6 @@ public:
         T s_param = std::sqrt(du*du + dv*dv);
 
         // Local Jacobian magnitude at center to relate param and world scales
-        auto [Su_c, Sv_c] = evaluatePartials(uc, vc);
-        T Jc = std::max(Su_c.norm(), Sv_c.norm());
-        if (Jc <= T(0)) Jc = T(1);
 
         // Curvature change across patch (dimensionless): G ~ |∇kappa| per param
         // Threshold blends a small absolute tolerance with world->param scaled epsilon
@@ -682,7 +712,7 @@ public:
 
         // World-space flatness scaled by local mapping and global scale
         T world_scale_eff = (world_scale > T(0)) ? world_scale : T(1);
-        bool worldFlat = bbox_diag <= world_eps * (T(1) + (Jc * s_param) / world_scale_eff);
+        bool worldFlat = bbox_diag <= world_eps * (tol.paramTol + (Jc * s_param) / std::max<T>(world_scale_eff, tol.paramTol));
 
         bool depthStop = (depth >= max_depth);
         bool paramStop = (du <= min_param_extent && dv <= min_param_extent);
@@ -710,8 +740,8 @@ public:
             JTd(1) = Sv.dot(dir_world);
 
             // Tolerance-driven determinant guard
-            T scale_J = std::max<T>(JTJ(0,0) + JTJ(1,1), T(1));
-            T det_eps = std::max<T>(tol.evaluateEpsilon(scale_J), T(1e-18));
+            T scale_J = std::max<T>(JTJ(0,0) + JTJ(1,1), tol.paramTol);
+            T det_eps = std::max<T>(tol.evaluateEpsilon(scale_J), limits.eps_det);
             T det = JTJ(0,0)*JTJ(1,1) - JTJ(0,1)*JTJ(1,0);
             if (std::abs(det) > det_eps) {
                 Eigen::Matrix<T,2,1> ab;
@@ -722,8 +752,8 @@ public:
                 T bv = std::abs(ab(1));
 
                 // Adaptive anisotropy threshold based on tolerance scale
-                T anisotropyThresh = T(2) + tol.evaluateEpsilon(world_scale > T(0) ? world_scale : T(1)) * T(1e3);
-                T ratio = (std::max(au, bv)) / (std::max(T(1e-20), std::min(au, bv)));
+                T anisotropyThresh = T(2) + tol.evaluateEpsilon(std::max<T>(world_scale, tol.paramTol)) * T(1e3);
+                T ratio = (std::max(au, bv)) / (std::max(limits.eps_cross, std::min(au, bv)));
                 if (ratio > anisotropyThresh) {
                     if (au > bv) { split_u = true; split_v = false; }
                     else         { split_u = false; split_v = true; }
@@ -753,10 +783,12 @@ public:
 
     // Adaptive recursive BVH generation (tolerance-driven)
     void generateBVH(int grid, const Euclid::Tolerance& tol, T world_scale = T(0), int max_depth = -1) const {
+        auto limits = NumericalLimits<T>::derive(tol, world_scale);
         bvh_patches.clear();
+        curvature_cache.clear();
         // Pre-reserve BVH patch vector capacity to avoid excessive reallocations during recursion
         size_t reserve_cap = static_cast<size_t>(
-            std::clamp<T>(4096 / std::max<T>(tol.paramTol, T(1e-8)), T(1024), T(32768))
+            std::clamp<T>(4096 / std::max<T>(tol.paramTol, limits.eps_param), T(1024), T(32768))
         );
         bvh_patches.reserve(reserve_cap);
         // Domain
@@ -784,7 +816,10 @@ public:
         T uc = (umin+umax)/T(2), vc = (vmin+vmax)/T(2);
         auto [Su0,Sv0] = evaluatePartials(uc, vc);
         T J = std::max(Su0.norm(), Sv0.norm());
-        if (J <= T(0)) J = T(1);
+        if (J <= T(0)) {
+            auto limits_J = NumericalLimits<T>::derive(tol, world_scale);
+            J = std::max<T>(tol.paramTol, limits_J.eps_world);
+        }
         T world_eps = tol.evaluateEpsilon(est_scale);
         T param_eps_from_world = world_eps / J;
 
@@ -805,8 +840,8 @@ public:
 
             // Compute domain ratio and tolerance scaling
             T span = std::max(std::abs(umax - umin), std::abs(vmax - vmin));
-            T ratio = std::max<T>(T(1), span / std::max<T>(min_param_extent, T(1e-8)));
-            T tol_scale = std::clamp<T>(T(1.0) / std::sqrt(std::max<T>(tol.paramTol, T(1e-9))), T(1), T(64));
+            T ratio = std::max<T>(T(1), span / std::max<T>(min_param_extent, limits.eps_param));
+            T tol_scale = std::clamp<T>(T(1.0) / std::sqrt(std::max<T>(tol.paramTol, limits.eps_param)), T(1), T(64));
 
             // Adaptive depth scaling: curvature and tolerance drive deeper recursion
             T curvature_scale = std::clamp<T>(1 + G_center * 20, 1, 8);
@@ -818,11 +853,13 @@ public:
         bool have_dir = bvh_dir_hint_world.has_value();
         Eigen::Matrix<T,N,1> dir_world = have_dir ? *bvh_dir_hint_world : Eigen::Matrix<T,N,1>::Zero();
 
-        // Per-branch work budget derived from tolerance and domain-to-resolution ratio
-        T tol_clamped = std::max<T>(tol.paramTol, T(1e-9));
-        int base_budget = 6 + int(std::ceil(std::log10(double(1.0 / tol_clamped)))); // grows slowly as tolerance tightens
-        int depth_term = std::max<int>(1, int(std::ceil(std::log2(double(std::max<T>(T(1), (std::max(std::abs(umax-umin), std::abs(vmax-vmin))) / std::max<T>(min_param_extent, T(1e-8))))))));
-        int per_branch_budget = std::clamp(base_budget + depth_term/2, 8, 24);
+        // Per-branch work budget derived from adaptive tolerance scaling and resolution ratio
+        T tol_clamped = std::max<T>(tol.paramTol, limits.eps_param);
+        T domain_extent = std::max<T>(std::abs(umax - umin), std::abs(vmax - vmin));
+        T ratio = domain_extent / std::max<T>(min_param_extent, tol_clamped);
+        T adaptive_scale = std::max<T>(1, std::log2(std::max<T>(T(2), ratio)));
+        int base_budget = 6 + int(std::ceil(std::log10(double(1.0 / tol_clamped))));
+        int per_branch_budget = std::clamp<int>(int(base_budget * adaptive_scale), 8, 24);
 
         subdividePatch(umin, umax, vmin, vmax, tol, est_scale, min_param_extent, effective_depth, 0, per_branch_budget, have_dir, dir_world);
         bvh_valid = true;
@@ -897,9 +934,9 @@ public:
         if constexpr (N == 3) {
             n = Su.cross(Sv);
             T nn = n.norm();
-            if (nn > T(0)) n /= nn; else n = principalNormal(proj.u, proj.v, bvh_dir_hint_world);
+            if (nn > T(0)) n /= nn; else n = principalNormal(proj.u, proj.v, tol, bvh_dir_hint_world);
         } else {
-            n = principalNormal(proj.u, proj.v, bvh_dir_hint_world);
+            n = principalNormal(proj.u, proj.v, tol, bvh_dir_hint_world);
         }
 
         // If we still have a degenerate normal, use the direction to the surface
@@ -946,9 +983,10 @@ public:
                                      int max_depth,
                                      int budget) const
     {
+        auto limits = NumericalLimits<T>::derive(tol, world_scale);
         // Hard cap to avoid explosions in pathological cases, dynamically scaled by tolerance
         size_t MAX_EXTRA = std::clamp<size_t>(
-            static_cast<size_t>(8192 / std::max<T>(tol.paramTol, T(1e-6))),
+            static_cast<size_t>(8192 / std::max<T>(tol.paramTol, limits.eps_world)),
             size_t(2048),
             size_t(32768)
         );
@@ -966,7 +1004,8 @@ public:
 
         // If the world bbox is already within epsilon, stop.
         T bbox_diag = (bmax - bmin).norm();
-        T world_eps = tol.evaluateEpsilon(world_scale > T(0) ? world_scale : T(1));
+        auto limits_ws = NumericalLimits<T>::derive(tol, std::max<T>(world_scale, tol.paramTol));
+        T world_eps = tol.evaluateEpsilon(std::max<T>(world_scale, limits_ws.eps_world));
         bool small_world = (bbox_diag <= world_eps);
 
         // Param-based lower bound derived from generateBVH heuristic
@@ -974,7 +1013,10 @@ public:
         T vc = (patch.vmin + patch.vmax) / T(2);
         auto [Su, Sv] = evaluatePartials(uc, vc);
         T J = std::max(Su.norm(), Sv.norm());
-        if (J <= T(0)) J = T(1);
+        if (J <= T(0)) {
+            auto limits_J = NumericalLimits<T>::derive(tol, world_scale);
+            J = std::max<T>(tol.paramTol, limits_J.eps_world);
+        }
         T param_eps_from_world = world_eps / J;
         bool small_param = (std::max(du, dv) <= param_eps_from_world);
 
@@ -983,7 +1025,8 @@ public:
         // Lightweight curvature proxy to avoid needless splitting when already tiny
         T G_pre = curvatureGradientMagnitude(uc, vc, std::max(du * T(0.5), param_eps_from_world),
                                              std::max(dv * T(0.5), param_eps_from_world), tol);
-        bool mild_curv = (G_pre * (du + dv)) <= (tol.evaluateEpsilon(T(1)) + world_eps / J);
+        auto limits_J = NumericalLimits<T>::derive(tol, world_scale, J);
+        bool mild_curv = (G_pre * (du + dv)) <= (tol.evaluateEpsilon(std::max<T>(tol.paramTol, limits_J.eps_world)) + world_eps / J);
         if ((small_world || small_param) && mild_curv) return;
 
         // Find t-interval of ray within the AABB
@@ -997,9 +1040,9 @@ public:
         if constexpr (N == 3) {
             n_loc = Su_loc.cross(Sv_loc);
             T nn = n_loc.norm();
-            if (nn > T(0)) n_loc /= nn; else n_loc = principalNormal(uc, vc, bvh_dir_hint_world);
+            if (nn > T(0)) n_loc /= nn; else n_loc = principalNormal(uc, vc, tol, bvh_dir_hint_world);
         } else {
-            n_loc = principalNormal(uc, vc, bvh_dir_hint_world);
+            n_loc = principalNormal(uc, vc, tol, bvh_dir_hint_world);
         }
         if (n_loc.norm() <= T(0)) {
             // fallback: use ray direction as a stable proxy
@@ -1026,16 +1069,29 @@ public:
 
         // Choose number of samples based on how large the bbox segment is relative to epsilon
         // Larger boxes (relative to world_eps) get more samples, up to a modest cap.
-        T rel = std::max<T>(T(1), bbox_diag / std::max<T>(world_eps, T(1e-30)));
+        auto local_limits = NumericalLimits<T>::derive(tol, world_scale);
+        T rel_floor = std::max<T>(tol.paramTol, local_limits.eps_world);
+        T rel = std::max<T>(rel_floor, bbox_diag / std::max<T>(world_eps, rel_floor));
         int base_samples = 3 + int(std::ceil(std::log2(double(rel))));
         int samples_coarse = std::clamp(base_samples, 3, 7);   // 3,5,7 typical
-        int samples_refine = std::clamp(base_samples + 2, 5, 11); // 5..11
+        // Adaptive refinement logic (purely tolerance-adaptive, no hardcoded constants)
+        T scale_factor = T(1) / std::sqrt(std::max<T>(tol.paramTol, local_limits.eps_world));
+        T refine_thresh_world = world_eps * scale_factor;
+        T refine_thresh_curv = std::max<T>(local_limits.eps_param, tol.paramTol);
+
+        bool refine_needed =
+            (bbox_diag > refine_thresh_world) &&
+            (G_pre > refine_thresh_curv);
+
+        int samples_refine = refine_needed
+            ? std::clamp(base_samples + 2, 5, 9)
+            : samples_coarse;
 
         bool sign_change = false, near_zero = false;
         sample_segment_adaptive(samples_coarse, sign_change, near_zero);
 
         // If uncertain and bbox is not tiny, do a denser pass
-        if (!sign_change && !near_zero && bbox_diag > world_eps * T(2)) {
+        if (!sign_change && !near_zero && bbox_diag > world_eps * T(2) && samples_refine > samples_coarse) {
             sample_segment_adaptive(samples_refine, sign_change, near_zero);
         }
 
@@ -1051,14 +1107,17 @@ public:
         T G = curvatureGradientMagnitude(uc, vc, std::max(du * T(0.5), param_eps_from_world),
                                          std::max(dv * T(0.5), param_eps_from_world), tol);
 
-        // Local Jacobian magnitude already computed as J; build a curvature threshold
-        T curv_thresh = tol.evaluateEpsilon(T(1)) + (world_eps / J);
+        // Local Jacobian magnitude already computed as J; derive adaptive limits
+        auto local_limits_J = NumericalLimits<T>::derive(tol, world_scale, J);
+
+        // Adaptive curvature threshold and world-space flatness
+        T curv_thresh = std::max<T>(local_limits_J.eps_param, local_limits_J.eps_world / J);
         bool high_curvature = (G * (du + dv)) > curv_thresh;
 
-        // Tolerance-driven flatness in world-space for this patch
-        bool worldFlat = (bbox_diag <= world_eps * (T(1) + (J * (du + dv) / std::max<T>(world_scale, T(1)))));
+        bool worldFlat = bbox_diag <= (local_limits_J.eps_world * J * (du + dv)) /
+                                     std::max<T>(world_scale, local_limits_J.eps_world);
 
-        // Early exit: if there is no sign change and not near-zero, and the patch is both world-flat and not high curvature, stop.
+        // Early exit: if there is no sign change or near-zero crossing and the patch is both world-flat and not high curvature, stop.
         if (!sign_change && !near_zero && worldFlat && !high_curvature) return;
 
         // Otherwise, subdivide the patch and recurse.
@@ -1090,6 +1149,7 @@ public:
         const Euclid::Tolerance& tol,
         int max_depth = 9) const
     {
+        curvature_cache.clear();
         // Ensure BVH exists; reuse world-scale estimated during build
         if (!bvh_valid) {
             generateBVH(40, tol);
@@ -1105,7 +1165,10 @@ public:
             }
         }
         T world_scale = (bbmax - bbmin).norm();
-        if (world_scale <= T(0)) world_scale = T(1e-6);
+        if (world_scale <= T(0)) {
+            auto limits_ws = NumericalLimits<T>::derive(tol, tol.paramTol);
+            world_scale = std::max<T>(tol.paramTol, limits_ws.eps_world);
+        }
 
         // Pre-reserve to avoid reallocation that would invalidate references during refinement
         {
@@ -1120,7 +1183,8 @@ public:
 
         // Important: iterate over a snapshot of current size because vector grows during refinement.
         // Work on a local copy per element to avoid reference invalidation if pushes occur.
-        T tol_clamped = std::max<T>(tol.paramTol, T(1e-9));
+        auto limits_rb = NumericalLimits<T>::derive(tol, world_scale);
+        T tol_clamped = std::max<T>(tol.paramTol, limits_rb.eps_param);
         int refine_budget = std::clamp(6 + int(std::ceil(std::log10(double(1.0 / tol_clamped)))) + max_depth/2, 8, 24);
         size_t initial = bvh_patches.size();
         for (size_t i = 0; i < initial; ++i) {
@@ -1191,20 +1255,26 @@ public:
             bool large_extent = (du > 2 * tol.evaluateEpsilon(std::max(std::abs(u1 - u0), std::abs(v1 - v0)))) ||
                                 (dv > 2 * tol.evaluateEpsilon(std::max(std::abs(u1 - u0), std::abs(v1 - v0))));
 
-            // Curvature/conditioning indicator at patch center
+            // Curvature/conditioning indicator at patch center (tolerance-adaptive)
             auto [Su, Sv] = evaluatePartials(uc, vc);
             T su = Su.norm();
             T sv = Sv.norm();
             T mixed = std::abs(Su.dot(Sv));
-            // A slightly stronger indicator than just su*sv
-            T indicator = su * sv + mixed;
+            // Use adaptive indicator: normalize by tolerance and numerical limits
+            auto limits = NumericalLimits<T>::derive(tol, std::max<T>(du, dv));
+            T indicator = (su * sv + mixed) / std::max<T>(limits.eps_param, tol.paramTol);
 
-            // Choose refinement level based on indicator
+            // Adaptive refinement thresholds based on tolerance and limits
+            T thresh_lo  = std::max<T>(tol.paramTol * 5,   limits.eps_param * 10);
+            T thresh_mid = std::max<T>(tol.paramTol * 25,  limits.eps_param * 50);
+            T thresh_hi  = std::max<T>(tol.paramTol * 100, limits.eps_param * 200);
+
+            // Choose refinement level based on adaptive indicator
             // 1 => only center/corners, 3 => 3x3, 5 => 5x5, 7 => 7x7
             int refine = 1;
-            if (large_extent || indicator > T(10)) refine = std::max(refine, 3);
-            if (indicator > T(40))               refine = std::max(refine, 5);
-            if (indicator > T(160))              refine = std::max(refine, 7);
+            if (large_extent || indicator > thresh_lo)  refine = std::max(refine, 3);
+            if (indicator > thresh_mid)                 refine = std::max(refine, 5);
+            if (indicator > thresh_hi)                  refine = std::max(refine, 7);
 
             if (refine > 1) {
                 // Place a regular (refine+1)x(refine+1) grid including boundaries to
@@ -1306,7 +1376,7 @@ public:
         std::vector<std::vector<size_t>> boundarySubfaces;
     };
 
-    TopologyCheckResult hasClosedTopology() const {
+    TopologyCheckResult hasClosedTopology(const Euclid::Tolerance& tol) const {
         TopologyCheckResult result{true, {}};
         if constexpr (N < 2) {
             // Not defined for dimension less than 2 (no faces)
@@ -1320,12 +1390,13 @@ public:
         // Map from canonical subface (sorted indices) to count
         std::map<std::vector<size_t>, int> subfaceCount;
 
-        // Helper lambda to check if face is degenerate (repeated vertices)
+        // Helper lambda to check if face is degenerate (repeated vertices or near-zero measure)
         auto isDegenerateFace = [&](const std::vector<size_t>& face) -> bool {
             std::set<size_t> uniqueVerts(face.begin(), face.end());
             if (uniqueVerts.size() < face.size()) return true;
+
             if constexpr (N == 3) {
-                // For 3D triangles, also check zero area
+                // For 3D triangles, also check near-zero area using tolerance-driven epsilon
                 if (face.size() == 3) {
                     const auto& a = vertices[face[0]].coords;
                     const auto& b = vertices[face[1]].coords;
@@ -1333,7 +1404,11 @@ public:
                     auto ab = b - a;
                     auto ac = c - a;
                     auto cross = ab.cross(ac);
-                    if (cross.norm() < 1e-12) return true;
+                    // Scale area tolerance by local edge lengths to remain scale-aware
+                    T len_ab = ab.norm();
+                    T len_ac = ac.norm();
+                    T scale = std::max<T>(tol.paramTol, len_ab * len_ac);
+                    if (cross.norm() < tol.evaluateEpsilon(scale)) return true;
                 }
             }
             return false;
@@ -1380,6 +1455,12 @@ public:
         }
 
         return result;
+    }
+
+    // Convenience overload that uses a default tolerance
+    TopologyCheckResult hasClosedTopology() const {
+        Euclid::Tolerance tol;
+        return hasClosedTopology(tol);
     }
 };
 
