@@ -16,18 +16,18 @@ namespace Euclid::Geometry {
 
 template<typename T>
 struct NumericalLimits {
-    T eps_world;
     T eps_param;
     T eps_det;
     T eps_cross;
 
-    static NumericalLimits<T> derive(const Euclid::Tolerance& tol, T world_scale, T J = T(1)) {
+    static NumericalLimits<T> derive(
+        const Euclid::Tolerance& tol, T J = T(1))
+    {
         T floor = std::max<T>(tol.paramTol, std::numeric_limits<T>::epsilon());
-        T eps_world = tol.evaluateEpsilon(std::max<T>(world_scale, floor));
-        T eps_param = std::max<T>(tol.paramTol, eps_world / std::max<T>(J, floor));
-        T eps_det   = std::max<T>(tol.evaluateEpsilon(std::max<T>(world_scale, floor)), T(1e-30));
-        T eps_cross = std::max<T>(tol.evaluateEpsilon(std::max<T>(world_scale, floor)), T(1e-20));
-        return {eps_world, eps_param, eps_det, eps_cross};
+        T eps_param = std::max<T>(tol.paramTol, tol.evaluateEpsilon(std::max<T>(J, floor)));
+        T eps_det   = std::max<T>(tol.evaluateEpsilon(std::max<T>(J, floor)), T(1e-30));
+        T eps_cross = std::max<T>(tol.evaluateEpsilon(std::max<T>(J, floor)), T(1e-20));
+        return {eps_param, eps_det, eps_cross};
     }
 };
 
@@ -67,11 +67,11 @@ public:
         if (!bvh_valid) generateBVH(40, tol);
         const auto& patches = bvh_patches;
         // Compute adaptive max_seeds based on tolerance
-        T world_scale_est = std::max<T>(
+        T surface_domain_scale_est = std::max<T>(
             std::abs(surfaceDomain.first.second - surfaceDomain.first.first),
             std::abs(surfaceDomain.second.second - surfaceDomain.second.first)
         );
-        auto limits = NumericalLimits<T>::derive(tol, world_scale_est);
+        auto limits = NumericalLimits<T>::derive(tol, surface_domain_scale_est);
         int max_seeds = std::clamp<int>(
             static_cast<int>(6 / std::max<T>(tol.paramTol, limits.eps_param)),
             4, 32
@@ -115,8 +115,8 @@ public:
 private:
     mutable std::vector<SurfacePatchAABB> bvh_patches;
     mutable bool bvh_valid = false;
-    // Optional world-space direction hint for directional BVH refinement
-    mutable std::optional<Eigen::Matrix<T, N, 1>> bvh_dir_hint_world;
+    // Optional direction hint for directional BVH refinement
+    mutable std::optional<Eigen::Matrix<T, N, 1>> bvh_dir_hint;
     // Cache of last successful projection seed (u,v)
     mutable std::optional<std::pair<T,T>> last_seed_uv;
     // Cache for curvature gradient magnitudes at (u,v)
@@ -140,11 +140,7 @@ private:
     T curvatureGradientMagnitude(T u, T v, T du, T dv, const Euclid::Tolerance& tol) const {
         // Conservative caching: store the MAX observed gradient at quantized (u,v).
         // Quantize keys to reduce cache misses from near-identical parameter pairs.
-        T world_scale_est = std::max<T>(
-            std::abs(surfaceDomain.first.second - surfaceDomain.first.first),
-            std::abs(surfaceDomain.second.second - surfaceDomain.second.first)
-        );
-        auto limits_q = NumericalLimits<T>::derive(tol, world_scale_est);
+        auto limits_q = NumericalLimits<T>::derive(tol, std::max<T>(tol.paramTol, std::max(du, dv)));
         T qstep = std::max<T>(tol.paramTol, limits_q.eps_param);
         T uq = std::round(u / qstep) * qstep;
         T vq = std::round(v / qstep) * qstep;
@@ -187,17 +183,17 @@ public:
             std::function<T(const Eigen::Matrix<T, N, 1>&)> sdf = nullptr)
         : surfaceFunc(f), analyticSDF(sdf), surfaceDomain(domain) {}
 
-    // Optional: provide a world-space direction hint to bias BVH refinement along that direction
-    void setBVHDirectionHint(const Eigen::Matrix<T, N, 1>& dir_world) const {
-        if (dir_world.norm() > T(0)) {
-            bvh_dir_hint_world = dir_world.normalized();
+    // Optional: provide a direction hint to bias BVH refinement along that direction
+    void setBVHDirectionHint(const Eigen::Matrix<T, N, 1>& dir_hint) const {
+        if (dir_hint.norm() > T(0)) {
+            bvh_dir_hint = dir_hint.normalized();
             bvh_valid = false; // force rebuild on next getBVH()
         }
     }
 
     // Clear any previously set BVH direction hint
     void clearBVHDirectionHint() const {
-        bvh_dir_hint_world.reset();
+        bvh_dir_hint.reset();
         bvh_valid = false;
     }
 
@@ -381,7 +377,7 @@ public:
                 r.surface_point = PointType(S);
                 r.iterations = it;
                 // Signed distance via principal normal aligned with any BVH hint
-                Eigen::Matrix<T,N,1> n = principalNormal(r.u, r.v, tol, bvh_dir_hint_world);
+                Eigen::Matrix<T,N,1> n = principalNormal(r.u, r.v, tol, bvh_dir_hint);
                 if (n.norm() > tol.evaluateEpsilon(std::max<T>(n.norm(), tol.paramTol))) {
                     r.signed_distance = (R.dot(n));
                 } else {
@@ -453,7 +449,7 @@ public:
                 prev_norm = rn; r.iterations = it+1;
                 r.ok = true; r.signed_distance = rn;
                 r.surface_point = PointType(evaluate(r.u, r.v).coords);
-                Eigen::Matrix<T,N,1> n = principalNormal(r.u, r.v, tol, bvh_dir_hint_world);
+                Eigen::Matrix<T,N,1> n = principalNormal(r.u, r.v, tol, bvh_dir_hint);
                 if (n.norm() > tol.evaluateEpsilon(std::max<T>(n.norm(), tol.paramTol))) {
                     r.signed_distance = ((evaluate(r.u, r.v).coords - P).dot(n));
                 } else {
@@ -466,7 +462,7 @@ public:
         // Finalize (may be not-ok)
         r.surface_point = PointType(evaluate(r.u, r.v).coords);
         {
-            Eigen::Matrix<T,N,1> n = principalNormal(r.u, r.v, tol, bvh_dir_hint_world);
+            Eigen::Matrix<T,N,1> n = principalNormal(r.u, r.v, tol, bvh_dir_hint);
             if (n.norm() > T(0)) {
                 r.signed_distance = ((r.surface_point.coords - P).dot(n));
             } else {
@@ -539,9 +535,9 @@ public:
         if (out_v) *out_v = r.v;
 
         // Use principal normal with optional global sign hint for consistent signed distances
-        Eigen::Matrix<T,N,1> n = principalNormal(r.u, r.v, tol, bvh_dir_hint_world);
+        Eigen::Matrix<T,N,1> n = principalNormal(r.u, r.v, tol, bvh_dir_hint);
         // Enforce normal alignment with BVH direction hint if present
-        if (bvh_dir_hint_world && n.dot(*bvh_dir_hint_world) < T(0)) {
+        if (bvh_dir_hint && n.dot(*bvh_dir_hint) < T(0)) {
             n = -n;
         }
         if (n.norm() > tol.evaluateEpsilon(std::max<T>(n.norm(), tol.paramTol))) {
@@ -565,32 +561,33 @@ public:
 
     // Helper: Adaptive recursive patch subdivision for BVH (tolerance-aware, with optional direction hint)
     void subdividePatch(T umin, T umax, T vmin, T vmax,
-                        const Euclid::Tolerance& tol, T world_scale,
+                        const Euclid::Tolerance& tol,
                         T min_param_extent, int max_depth, int depth,
                         int budget,
-                        bool have_dir, const Eigen::Matrix<T, N, 1>& dir_world) const
+                        bool have_dir, const Eigen::Matrix<T, N, 1>& dir_hint) const
     {
-        auto limits = NumericalLimits<T>::derive(tol, world_scale);
-        // Compute patch center and extents
         T uc = (umin + umax) / T(2);
         T vc = (vmin + vmax) / T(2);
+        auto [Su, Sv] = evaluatePartials(uc, vc);
+        T J = std::max(Su.norm(), Sv.norm());
+        auto limits = NumericalLimits<T>::derive(tol, J);
         T du = std::abs(umax - umin);
         T dv = std::abs(vmax - vmin);
+        T surface_extent = std::max<T>(du, dv);
+        T local_scale = std::max<T>(surface_extent * J, tol.paramTol);
+        T eps_local = tol.evaluateEpsilon(local_scale);
 
         // Per-branch work budget: stop subdividing if exhausted
         if (budget <= 0) {
             // Adaptive sampling density based on curvature and tolerance
             int base_samples = 5;
             T G_center = curvatureGradientMagnitude(uc, vc, std::max<T>(du*0.5, tol.paramTol), std::max<T>(dv*0.5, tol.paramTol), tol);
-            // Scale factor: higher curvature or tighter tolerance => more samples
             T curvature_scale = std::clamp<T>(1 + G_center * (1 / std::sqrt(std::max<T>(tol.paramTol, limits.eps_param))), 1, 4);
             T tol_scale = std::clamp<T>(1 / std::sqrt(std::max<T>(tol.paramTol, limits.eps_param)), 1, 4);
             int adaptive_samples = std::clamp<int>(int(base_samples * 0.5 * (curvature_scale + tol_scale)), 5, 25);
 
             std::vector<PointType> samples;
             samples.reserve(adaptive_samples);
-
-            // Distribute adaptively in param-space grid (√n x √n)
             int grid_n = std::max<int>(2, std::round(std::sqrt(adaptive_samples)));
             for (int i = 0; i < grid_n; ++i) {
                 for (int j = 0; j < grid_n; ++j) {
@@ -618,18 +615,14 @@ public:
                 T(1024), T(32768)
             ));
         if (bvh_patches.size() >= MAX_PATCHES) {
-            // Adaptive sampling density based on curvature and tolerance
             int base_samples = 5;
             T G_center = curvatureGradientMagnitude(uc, vc, std::max<T>(du*0.5, tol.paramTol), std::max<T>(dv*0.5, tol.paramTol), tol);
-            // Scale factor: higher curvature or tighter tolerance => more samples
             T curvature_scale = std::clamp<T>(1 + G_center * (1 / std::sqrt(std::max<T>(tol.paramTol, limits.eps_param))), 1, 4);
             T tol_scale = std::clamp<T>(1 / std::sqrt(std::max<T>(tol.paramTol, limits.eps_param)), 1, 4);
             int adaptive_samples = std::clamp<int>(int(base_samples * 0.5 * (curvature_scale + tol_scale)), 5, 25);
 
             std::vector<PointType> samples;
             samples.reserve(adaptive_samples);
-
-            // Distribute adaptively in param-space grid (√n x √n)
             int grid_n = std::max<int>(2, std::round(std::sqrt(adaptive_samples)));
             for (int i = 0; i < grid_n; ++i) {
                 for (int j = 0; j < grid_n; ++j) {
@@ -650,7 +643,6 @@ public:
             return;
         }
 
-        // World-space flatness test using an adaptive-sampled bbox
         int base_samples = 5;
         T G_center = curvatureGradientMagnitude(uc, vc, std::max<T>(du*0.5, tol.paramTol), std::max<T>(dv*0.5, tol.paramTol), tol);
         T curvature_scale = std::clamp<T>(1 + G_center * (1 / std::sqrt(std::max<T>(tol.paramTol, limits.eps_param))), 1, 4);
@@ -676,21 +668,6 @@ public:
         }
         T bbox_diag = (maxPt.coords - minPt.coords).norm();
 
-        // Local Jacobian magnitude at center to relate param and world scales
-        auto [Su_c, Sv_c] = evaluatePartials(uc, vc);
-        T Jc = std::max(Su_c.norm(), Sv_c.norm());
-        // Tolerance-adaptive floor for Jacobian magnitude
-        {
-            T world_ref = std::max<T>(world_scale, tol.paramTol);
-            T eps_ref = tol.evaluateEpsilon(world_ref);
-            T J_floor = std::max<T>(tol.paramTol, eps_ref);
-            if (Jc <= J_floor) Jc = J_floor;
-        }
-
-        // Use Jc to set a stable local world scale before computing epsilon
-        T local_scale = std::max<T>(world_scale, std::max<T>(Jc, tol.paramTol));
-        T world_eps   = tol.evaluateEpsilon(local_scale);
-
         // Param-step for gradient probing: half patch, but not smaller than tolerance-induced param eps
         T param_eps = std::max(min_param_extent * T(0.5), tol.paramTol);
         T step_u = std::max<T>(du * T(0.5), param_eps);
@@ -703,56 +680,47 @@ public:
         // Parametric span (dimensionless)
         T s_param = std::sqrt(du*du + dv*dv);
 
-        // Local Jacobian magnitude at center to relate param and world scales
-
         // Curvature change across patch (dimensionless): G ~ |∇kappa| per param
-        // Threshold blends a small absolute tolerance with world->param scaled epsilon
-        T curv_thresh = tol.evaluateEpsilon(T(1)) + (world_eps / Jc);
+        // Threshold blends a small absolute tolerance with param scaled epsilon
+        T curv_thresh = tol.evaluateEpsilon(T(1)) + (eps_local / J);
         bool curvatureFlat = (G * s_param) <= curv_thresh;
 
-        // World-space flatness scaled by local mapping and global scale
-        T world_scale_eff = (world_scale > T(0)) ? world_scale : T(1);
-        bool worldFlat = bbox_diag <= world_eps * (tol.paramTol + (Jc * s_param) / std::max<T>(world_scale_eff, tol.paramTol));
+        bool geomFlat = bbox_diag <= eps_local * (1 + J * (du + dv));
 
         bool depthStop = (depth >= max_depth);
         bool paramStop = (du <= min_param_extent && dv <= min_param_extent);
 
-        if (depthStop || paramStop || (worldFlat && curvatureFlat)) {
+        if (depthStop || paramStop || (geomFlat && curvatureFlat)) {
             bvh_patches.push_back(SurfacePatchAABB{umin, umax, vmin, vmax, minPt, maxPt});
             return;
         }
 
-        // --- Directional splitting logic (bias toward the projected line direction) ---
         bool split_u = true;
         bool split_v = true;
 
         if (have_dir) {
-            // Project world direction onto param space using J = [Su Sv] at the patch center
-            auto [Su, Sv] = evaluatePartials(uc, vc);
-            // Solve min_{a,b} || Su*a + Sv*b - dir_world || using normal equations
+            // Project direction hint onto param space using J = [Su Sv] at the patch center
+            // (Su, Sv already computed above)
             Eigen::Matrix<T,2,2> JTJ;
             JTJ(0,0) = Su.dot(Su);
             JTJ(0,1) = Su.dot(Sv);
             JTJ(1,0) = JTJ(0,1);
             JTJ(1,1) = Sv.dot(Sv);
             Eigen::Matrix<T,2,1> JTd;
-            JTd(0) = Su.dot(dir_world);
-            JTd(1) = Sv.dot(dir_world);
+            JTd(0) = Su.dot(dir_hint);
+            JTd(1) = Sv.dot(dir_hint);
 
-            // Tolerance-driven determinant guard
             T scale_J = std::max<T>(JTJ(0,0) + JTJ(1,1), tol.paramTol);
             T det_eps = std::max<T>(tol.evaluateEpsilon(scale_J), limits.eps_det);
             T det = JTJ(0,0)*JTJ(1,1) - JTJ(0,1)*JTJ(1,0);
             if (std::abs(det) > det_eps) {
                 Eigen::Matrix<T,2,1> ab;
-                // Inverse of 2x2
-                ab(0) = ( JTJ(1,1)*JTd(0) - JTJ(0,1)*JTd(1)) / det; // a
-                ab(1) = (-JTJ(1,0)*JTd(0) + JTJ(0,0)*JTd(1)) / det; // b
+                ab(0) = ( JTJ(1,1)*JTd(0) - JTJ(0,1)*JTd(1)) / det;
+                ab(1) = (-JTJ(1,0)*JTd(0) + JTJ(0,0)*JTd(1)) / det;
                 T au = std::abs(ab(0));
                 T bv = std::abs(ab(1));
-
-                // Adaptive anisotropy threshold based on tolerance scale
-                T anisotropyThresh = T(2) + tol.evaluateEpsilon(std::max<T>(world_scale, tol.paramTol)) * T(1e3);
+                // Adaptive anisotropy threshold based on tolerance scale and local_scale
+                T anisotropyThresh = T(2) + tol.evaluateEpsilon(local_scale) * T(1e3);
                 T ratio = (std::max(au, bv)) / (std::max(limits.eps_cross, std::min(au, bv)));
                 if (ratio > anisotropyThresh) {
                     if (au > bv) { split_u = true; split_v = false; }
@@ -761,34 +729,32 @@ public:
             }
         }
 
-        // Otherwise, subdivide accordingly
         T uc_mid = (umin + umax) / 2;
         T vc_mid = (vmin + vmax) / 2;
 
         if (split_u && split_v) {
-            // 4-way split (default)
-            subdividePatch(umin, uc_mid, vmin, vc_mid, tol, world_scale, min_param_extent, max_depth, depth + 1, budget - 1, have_dir, dir_world);
-            subdividePatch(uc_mid, umax, vmin, vc_mid, tol, world_scale, min_param_extent, max_depth, depth + 1, budget - 1, have_dir, dir_world);
-            subdividePatch(umin, uc_mid, vc_mid, vmax, tol, world_scale, min_param_extent, max_depth, depth + 1, budget - 1, have_dir, dir_world);
-            subdividePatch(uc_mid, umax, vc_mid, vmax, tol, world_scale, min_param_extent, max_depth, depth + 1, budget - 1, have_dir, dir_world);
+            subdividePatch(umin, uc_mid, vmin, vc_mid, tol, min_param_extent, max_depth, depth + 1, budget - 1, have_dir, dir_hint);
+            subdividePatch(uc_mid, umax, vmin, vc_mid, tol, min_param_extent, max_depth, depth + 1, budget - 1, have_dir, dir_hint);
+            subdividePatch(umin, uc_mid, vc_mid, vmax, tol, min_param_extent, max_depth, depth + 1, budget - 1, have_dir, dir_hint);
+            subdividePatch(uc_mid, umax, vc_mid, vmax, tol, min_param_extent, max_depth, depth + 1, budget - 1, have_dir, dir_hint);
         } else if (split_u) {
-            // 2-way split along u
-            subdividePatch(umin, uc_mid, vmin, vmax, tol, world_scale, min_param_extent, max_depth, depth + 1, budget - 1, have_dir, dir_world);
-            subdividePatch(uc_mid, umax, vmin, vmax, tol, world_scale, min_param_extent, max_depth, depth + 1, budget - 1, have_dir, dir_world);
-        } else { // split_v only
-            subdividePatch(umin, umax, vmin, vc_mid, tol, world_scale, min_param_extent, max_depth, depth + 1, budget - 1, have_dir, dir_world);
-            subdividePatch(umin, umax, vc_mid, vmax, tol, world_scale, min_param_extent, max_depth, depth + 1, budget - 1, have_dir, dir_world);
+            subdividePatch(umin, uc_mid, vmin, vmax, tol, min_param_extent, max_depth, depth + 1, budget - 1, have_dir, dir_hint);
+            subdividePatch(uc_mid, umax, vmin, vmax, tol, min_param_extent, max_depth, depth + 1, budget - 1, have_dir, dir_hint);
+        } else {
+            subdividePatch(umin, umax, vmin, vc_mid, tol, min_param_extent, max_depth, depth + 1, budget - 1, have_dir, dir_hint);
+            subdividePatch(umin, umax, vc_mid, vmax, tol, min_param_extent, max_depth, depth + 1, budget - 1, have_dir, dir_hint);
         }
     }
 
     // Adaptive recursive BVH generation (tolerance-driven)
-    void generateBVH(int grid, const Euclid::Tolerance& tol, T world_scale = T(0), int max_depth = -1) const {
-        auto limits = NumericalLimits<T>::derive(tol, world_scale);
+    void generateBVH(int grid, const Euclid::Tolerance& tol, int max_depth = -1) const {
+        // Will set J after partials below
         bvh_patches.clear();
         curvature_cache.clear();
         // Pre-reserve BVH patch vector capacity to avoid excessive reallocations during recursion
+        auto limits_prealloc = NumericalLimits<T>::derive(tol, tol.paramTol);
         size_t reserve_cap = static_cast<size_t>(
-            std::clamp<T>(4096 / std::max<T>(tol.paramTol, limits.eps_param), T(1024), T(32768))
+            std::clamp<T>(4096 / std::max<T>(tol.paramTol, limits_prealloc.eps_param), T(1024), T(32768))
         );
         bvh_patches.reserve(reserve_cap);
         // Domain
@@ -797,7 +763,7 @@ public:
         T vmin = surfaceDomain.second.first;
         T vmax = surfaceDomain.second.second;
 
-        // Estimate world scale if not provided: bbox diagonal of corners + center
+        // Estimate scale if not provided: bbox diagonal of corners + center
         auto p00 = evaluate(umin, vmin).coords;
         auto p10 = evaluate(umax, vmin).coords;
         auto p01 = evaluate(umin, vmax).coords;
@@ -810,23 +776,28 @@ public:
         upd(p10); upd(p01); upd(p11); upd(pc);
         T est_scale = (bbmax - bbmin).norm();
         if (est_scale == T(0)) est_scale = T(1);
-        if (world_scale > T(0)) est_scale = world_scale; // caller override
 
-        // Parametric step lower bound derived from world epsilon and Jacobian magnitude at center
-        T uc = (umin+umax)/T(2), vc = (vmin+vmax)/T(2);
-        auto [Su0,Sv0] = evaluatePartials(uc, vc);
+        // Parametric step lower bound derived adaptively from surface extent and Jacobian magnitude at center
+        T uc = (umin + umax) / T(2);
+        T vc = (vmin + vmax) / T(2);
+        auto [Su0, Sv0] = evaluatePartials(uc, vc);
         T J = std::max(Su0.norm(), Sv0.norm());
-        if (J <= T(0)) {
-            auto limits_J = NumericalLimits<T>::derive(tol, world_scale);
-            J = std::max<T>(tol.paramTol, limits_J.eps_world);
-        }
-        T world_eps = tol.evaluateEpsilon(est_scale);
-        T param_eps_from_world = world_eps / J;
+        auto limits = NumericalLimits<T>::derive(tol, J);
+
+        // Use local surface extent as geometric scale
+        T surface_extent = std::max<T>(std::abs(umax - umin), std::abs(vmax - vmin));
+        T local_scale = std::max<T>(surface_extent * J, tol.paramTol);
+
+        // Compute adaptive epsilon using the tolerance model
+        T adaptive_eps = tol.evaluateEpsilon(local_scale);
+
+        // Map adaptive epsilon (based on local surface extent) to param-space resolution
+        T param_eps_local = adaptive_eps / std::max<T>(J, tol.paramTol);
 
         // Grid-based cap in param space
         T grid_eps_u = std::abs(umax-umin) / T(std::max(1, grid));
         T grid_eps_v = std::abs(vmax-vmin) / T(std::max(1, grid));
-        T min_param_extent = std::max(param_eps_from_world, T(0.25) * std::min(grid_eps_u, grid_eps_v));
+        T min_param_extent = std::max(param_eps_local, T(0.25) * std::min(grid_eps_u, grid_eps_v));
 
         int effective_depth = max_depth;
         if (effective_depth <= 0) {
@@ -850,8 +821,8 @@ public:
         }
 
         // Pass optional direction hint (if any)
-        bool have_dir = bvh_dir_hint_world.has_value();
-        Eigen::Matrix<T,N,1> dir_world = have_dir ? *bvh_dir_hint_world : Eigen::Matrix<T,N,1>::Zero();
+        bool have_dir = bvh_dir_hint.has_value();
+        Eigen::Matrix<T,N,1> dir_hint = have_dir ? *bvh_dir_hint : Eigen::Matrix<T,N,1>::Zero();
 
         // Per-branch work budget derived from adaptive tolerance scaling and resolution ratio
         T tol_clamped = std::max<T>(tol.paramTol, limits.eps_param);
@@ -861,7 +832,7 @@ public:
         int base_budget = 6 + int(std::ceil(std::log10(double(1.0 / tol_clamped))));
         int per_branch_budget = std::clamp<int>(int(base_budget * adaptive_scale), 8, 24);
 
-        subdividePatch(umin, umax, vmin, vmax, tol, est_scale, min_param_extent, effective_depth, 0, per_branch_budget, have_dir, dir_world);
+        subdividePatch(umin, umax, vmin, vmax, tol, min_param_extent, effective_depth, 0, per_branch_budget, have_dir, dir_hint);
         bvh_valid = true;
     }
 
@@ -871,7 +842,7 @@ public:
                                            const Eigen::Matrix<T, N, 1>& bmin,
                                            const Eigen::Matrix<T, N, 1>& bmax,
                                            const Euclid::Tolerance& tol,
-                                           T world_scale_hint = T(1)) const
+                                           T local_scale = T(1)) const
     {
         T tmin = -std::numeric_limits<T>::infinity();
         T tmax =  std::numeric_limits<T>::infinity();
@@ -880,7 +851,7 @@ public:
             T o = rayOrigin(k);
             T d = rayDir(k);
             // Use a tolerance-scaled threshold based on the slab width in this dimension
-            T slab_extent = std::max<T>(std::abs(bmax(k) - bmin(k)), tol.evaluateEpsilon(world_scale_hint));
+            T slab_extent = std::max<T>(std::abs(bmax(k) - bmin(k)), tol.evaluateEpsilon(local_scale));
             T eps_d = tol.evaluateEpsilon(slab_extent);
             T invD;
             if (std::abs(d) <= eps_d) {
@@ -906,10 +877,10 @@ public:
                              const Eigen::Matrix<T, N, 1>& bmin,
                              const Eigen::Matrix<T, N, 1>& bmax,
                              const Euclid::Tolerance& tol,
-                             T world_scale_hint = T(1)) const
+                             T local_scale = T(1)) const
     {
-        Eigen::Matrix<T, N, 1> pad = Eigen::Matrix<T, N, 1>::Constant(tol.evaluateEpsilon(world_scale_hint));
-        auto [hit, t0, t1] = rayAABBInterval(rayOrigin, rayDir, bmin - pad, bmax + pad, tol, world_scale_hint);
+        Eigen::Matrix<T, N, 1> pad = Eigen::Matrix<T, N, 1>::Constant(tol.evaluateEpsilon(local_scale));
+        auto [hit, t0, t1] = rayAABBInterval(rayOrigin, rayDir, bmin - pad, bmax + pad, tol, local_scale);
         (void)t0; (void)t1;
         return hit;
     }
@@ -934,9 +905,9 @@ public:
         if constexpr (N == 3) {
             n = Su.cross(Sv);
             T nn = n.norm();
-            if (nn > T(0)) n /= nn; else n = principalNormal(proj.u, proj.v, tol, bvh_dir_hint_world);
+            if (nn > T(0)) n /= nn; else n = principalNormal(proj.u, proj.v, tol, bvh_dir_hint);
         } else {
-            n = principalNormal(proj.u, proj.v, tol, bvh_dir_hint_world);
+            n = principalNormal(proj.u, proj.v, tol, bvh_dir_hint);
         }
 
         // If we still have a degenerate normal, use the direction to the surface
@@ -978,15 +949,26 @@ public:
                                      const Eigen::Matrix<T, N, 1>& rayDir,
                                      SurfacePatchAABB& patch,
                                      const Euclid::Tolerance& tol,
-                                     T world_scale,
                                      int depth,
                                      int max_depth,
                                      int budget) const
     {
-        auto limits = NumericalLimits<T>::derive(tol, world_scale);
+        // Derive local geometry and tolerance-driven scales
+        T du = std::abs(patch.umax - patch.umin);
+        T dv = std::abs(patch.vmax - patch.vmin);
+        T surface_extent = std::max<T>(du, dv);
+        T uc = (patch.umin + patch.umax) / T(2);
+        T vc = (patch.vmin + patch.vmax) / T(2);
+        auto [Su, Sv] = evaluatePartials(uc, vc);
+        T J = std::max(Su.norm(), Sv.norm());
+        T local_scale = std::max<T>(surface_extent * J, tol.paramTol);
+        T eps_local = tol.evaluateEpsilon(local_scale);
+        T param_eps_local = eps_local / std::max<T>(J, tol.paramTol);
+        auto limits_J = NumericalLimits<T>::derive(tol, std::max<T>(J, tol.paramTol));
+
         // Hard cap to avoid explosions in pathological cases, dynamically scaled by tolerance
         size_t MAX_EXTRA = std::clamp<size_t>(
-            static_cast<size_t>(8192 / std::max<T>(tol.paramTol, limits.eps_world)),
+            static_cast<size_t>(8192 / std::max<T>(tol.paramTol, limits_J.eps_param)),
             size_t(2048),
             size_t(32768)
         );
@@ -996,41 +978,23 @@ public:
         // Quick reject: ray vs AABB
         Eigen::Matrix<T,N,1> bmin = patch.minPoint.coords;
         Eigen::Matrix<T,N,1> bmax = patch.maxPoint.coords;
-        if (!rayIntersectsAABBND(rayOrigin, rayDir, bmin, bmax, tol, world_scale)) return;
+        if (!rayIntersectsAABBND(rayOrigin, rayDir, bmin, bmax, tol, local_scale)) return;
 
-        // Intersect parametric box size
-        T du = std::abs(patch.umax - patch.umin);
-        T dv = std::abs(patch.vmax - patch.vmin);
-
-        // If the world bbox is already within epsilon, stop.
+        // If the bbox is already within epsilon, stop.
         T bbox_diag = (bmax - bmin).norm();
-        auto limits_ws = NumericalLimits<T>::derive(tol, std::max<T>(world_scale, tol.paramTol));
-        T world_eps = tol.evaluateEpsilon(std::max<T>(world_scale, limits_ws.eps_world));
-        bool small_world = (bbox_diag <= world_eps);
-
-        // Param-based lower bound derived from generateBVH heuristic
-        T uc = (patch.umin + patch.umax) / T(2);
-        T vc = (patch.vmin + patch.vmax) / T(2);
-        auto [Su, Sv] = evaluatePartials(uc, vc);
-        T J = std::max(Su.norm(), Sv.norm());
-        if (J <= T(0)) {
-            auto limits_J = NumericalLimits<T>::derive(tol, world_scale);
-            J = std::max<T>(tol.paramTol, limits_J.eps_world);
-        }
-        T param_eps_from_world = world_eps / J;
-        bool small_param = (std::max(du, dv) <= param_eps_from_world);
+        bool small_geom = (bbox_diag <= eps_local);
+        bool small_param = (std::max(du, dv) <= param_eps_local);
 
         // Stop if depth exhausted, or if either space has converged sufficiently and curvature is mild
         if (depth >= max_depth) return;
         // Lightweight curvature proxy to avoid needless splitting when already tiny
-        T G_pre = curvatureGradientMagnitude(uc, vc, std::max(du * T(0.5), param_eps_from_world),
-                                             std::max(dv * T(0.5), param_eps_from_world), tol);
-        auto limits_J = NumericalLimits<T>::derive(tol, world_scale, J);
-        bool mild_curv = (G_pre * (du + dv)) <= (tol.evaluateEpsilon(std::max<T>(tol.paramTol, limits_J.eps_world)) + world_eps / J);
-        if ((small_world || small_param) && mild_curv) return;
+        T G_pre = curvatureGradientMagnitude(uc, vc, std::max(du * T(0.5), param_eps_local),
+                                             std::max(dv * T(0.5), param_eps_local), tol);
+        bool mild_curv = (G_pre * (du + dv)) <= (tol.evaluateEpsilon(std::max<T>(tol.paramTol, limits_J.eps_param)) + eps_local / std::max<T>(J, tol.paramTol));
+        if ((small_geom || small_param) && mild_curv) return;
 
         // Find t-interval of ray within the AABB
-        auto [hit, t0, t1] = rayAABBInterval(rayOrigin, rayDir, bmin, bmax, tol, world_scale);
+        auto [hit, t0, t1] = rayAABBInterval(rayOrigin, rayDir, bmin, bmax, tol, local_scale);
         if (!hit) return;
 
         // Local plane proxy at patch center to avoid iterative projection during sampling
@@ -1040,9 +1004,9 @@ public:
         if constexpr (N == 3) {
             n_loc = Su_loc.cross(Sv_loc);
             T nn = n_loc.norm();
-            if (nn > T(0)) n_loc /= nn; else n_loc = principalNormal(uc, vc, tol, bvh_dir_hint_world);
+            if (nn > T(0)) n_loc /= nn; else n_loc = principalNormal(uc, vc, tol, bvh_dir_hint);
         } else {
-            n_loc = principalNormal(uc, vc, tol, bvh_dir_hint_world);
+            n_loc = principalNormal(uc, vc, tol, bvh_dir_hint);
         }
         if (n_loc.norm() <= T(0)) {
             // fallback: use ray direction as a stable proxy
@@ -1061,26 +1025,25 @@ public:
                 T t = t0 + (t1 - t0) * s;
                 Eigen::Matrix<T,N,1> P = rayOrigin + t * rayDir;
                 T d = proxySigned(P);
-                if (std::abs(d) <= world_eps) near_zero_out = true;
+                if (std::abs(d) <= eps_local) near_zero_out = true;
                 if (!std::isnan(dist_prev) && d * dist_prev < T(0)) { sign_change_out = true; break; }
                 dist_prev = d;
             }
         };
 
         // Choose number of samples based on how large the bbox segment is relative to epsilon
-        // Larger boxes (relative to world_eps) get more samples, up to a modest cap.
-        auto local_limits = NumericalLimits<T>::derive(tol, world_scale);
-        T rel_floor = std::max<T>(tol.paramTol, local_limits.eps_world);
-        T rel = std::max<T>(rel_floor, bbox_diag / std::max<T>(world_eps, rel_floor));
+        // Larger boxes (relative to eps_local) get more samples, up to a modest cap.
+        T rel_floor = std::max<T>(tol.paramTol, limits_J.eps_param);
+        T rel = std::max<T>(rel_floor, bbox_diag / std::max<T>(eps_local, rel_floor));
         int base_samples = 3 + int(std::ceil(std::log2(double(rel))));
         int samples_coarse = std::clamp(base_samples, 3, 7);   // 3,5,7 typical
         // Adaptive refinement logic (purely tolerance-adaptive, no hardcoded constants)
-        T scale_factor = T(1) / std::sqrt(std::max<T>(tol.paramTol, local_limits.eps_world));
-        T refine_thresh_world = world_eps * scale_factor;
-        T refine_thresh_curv = std::max<T>(local_limits.eps_param, tol.paramTol);
+        T scale_factor = T(1) / std::sqrt(std::max<T>(tol.paramTol, limits_J.eps_param));
+        T refine_thresh_geom = eps_local * scale_factor;
+        T refine_thresh_curv = std::max<T>(limits_J.eps_param, tol.paramTol);
 
         bool refine_needed =
-            (bbox_diag > refine_thresh_world) &&
+            (bbox_diag > refine_thresh_geom) &&
             (G_pre > refine_thresh_curv);
 
         int samples_refine = refine_needed
@@ -1091,34 +1054,30 @@ public:
         sample_segment_adaptive(samples_coarse, sign_change, near_zero);
 
         // If uncertain and bbox is not tiny, do a denser pass
-        if (!sign_change && !near_zero && bbox_diag > world_eps * T(2) && samples_refine > samples_coarse) {
+        if (!sign_change && !near_zero && bbox_diag > eps_local * T(2) && samples_refine > samples_coarse) {
             sample_segment_adaptive(samples_refine, sign_change, near_zero);
         }
 
         // If proxy was inconclusive on a sizable box, do a single exact mid-point check to avoid false negatives
-        if (!sign_change && !near_zero && bbox_diag > world_eps * T(4)) {
+        if (!sign_change && !near_zero && bbox_diag > eps_local * T(4)) {
             T t_mid = (t0 + t1) * T(0.5);
             Eigen::Matrix<T,N,1> Pmid = rayOrigin + t_mid * rayDir;
             T d_exact = rayPointSignedDistanceToSurface(Pmid, tol);
-            if (std::abs(d_exact) <= world_eps) near_zero = true;
+            if (std::abs(d_exact) <= eps_local) near_zero = true;
         }
 
         // Curvature gradient at center (parametric)
-        T G = curvatureGradientMagnitude(uc, vc, std::max(du * T(0.5), param_eps_from_world),
-                                         std::max(dv * T(0.5), param_eps_from_world), tol);
+        T G = curvatureGradientMagnitude(uc, vc, std::max(du * T(0.5), param_eps_local),
+                                         std::max(dv * T(0.5), param_eps_local), tol);
 
-        // Local Jacobian magnitude already computed as J; derive adaptive limits
-        auto local_limits_J = NumericalLimits<T>::derive(tol, world_scale, J);
-
-        // Adaptive curvature threshold and world-space flatness
-        T curv_thresh = std::max<T>(local_limits_J.eps_param, local_limits_J.eps_world / J);
+        // Adaptive curvature threshold and geometric flatness
+        T curv_thresh = std::max<T>(limits_J.eps_param, limits_J.eps_param / std::max<T>(J, tol.paramTol));
         bool high_curvature = (G * (du + dv)) > curv_thresh;
 
-        bool worldFlat = bbox_diag <= (local_limits_J.eps_world * J * (du + dv)) /
-                                     std::max<T>(world_scale, local_limits_J.eps_world);
+        bool geomFlat = bbox_diag <= eps_local * (1 + J * (du + dv));
 
-        // Early exit: if there is no sign change or near-zero crossing and the patch is both world-flat and not high curvature, stop.
-        if (!sign_change && !near_zero && worldFlat && !high_curvature) return;
+        // Early exit: if there is no sign change or near-zero crossing and the patch is both geom-flat and not high curvature, stop.
+        if (!sign_change && !near_zero && geomFlat && !high_curvature) return;
 
         // Otherwise, subdivide the patch and recurse.
         T um = (patch.umin + patch.umax) / T(2);
@@ -1129,10 +1088,10 @@ public:
         SurfacePatchAABB q01 = makePatchAABB(patch.umin, um, vm, patch.vmax);
         SurfacePatchAABB q11 = makePatchAABB(um, patch.umax, vm, patch.vmax);
 
-        refinePatchNearRayRecursive(rayOrigin, rayDir, q00, tol, world_scale, depth+1, max_depth, budget - 1);
-        refinePatchNearRayRecursive(rayOrigin, rayDir, q10, tol, world_scale, depth+1, max_depth, budget - 1);
-        refinePatchNearRayRecursive(rayOrigin, rayDir, q01, tol, world_scale, depth+1, max_depth, budget - 1);
-        refinePatchNearRayRecursive(rayOrigin, rayDir, q11, tol, world_scale, depth+1, max_depth, budget - 1);
+        refinePatchNearRayRecursive(rayOrigin, rayDir, q00, tol, depth+1, max_depth, budget - 1);
+        refinePatchNearRayRecursive(rayOrigin, rayDir, q10, tol, depth+1, max_depth, budget - 1);
+        refinePatchNearRayRecursive(rayOrigin, rayDir, q01, tol, depth+1, max_depth, budget - 1);
+        refinePatchNearRayRecursive(rayOrigin, rayDir, q11, tol, depth+1, max_depth, budget - 1);
 
         // Replace current patch with one child and append the others
         patch = q00;
@@ -1150,12 +1109,12 @@ public:
         int max_depth = 9) const
     {
         curvature_cache.clear();
-        // Ensure BVH exists; reuse world-scale estimated during build
+        // Ensure BVH exists; reuse scale estimated during build
         if (!bvh_valid) {
             generateBVH(40, tol);
         }
 
-        // Estimate global scale from current BVH bounds (quick pass)
+        // Estimate a local geometric extent from current BVH bounds (quick pass)
         Eigen::Matrix<T,N,1> bbmin = bvh_patches.front().minPoint.coords;
         Eigen::Matrix<T,N,1> bbmax = bvh_patches.front().maxPoint.coords;
         for (const auto& p : bvh_patches) {
@@ -1164,11 +1123,15 @@ public:
                 bbmax(k) = std::max(bbmax(k), p.maxPoint.coords(k));
             }
         }
-        T world_scale = (bbmax - bbmin).norm();
-        if (world_scale <= T(0)) {
-            auto limits_ws = NumericalLimits<T>::derive(tol, tol.paramTol);
-            world_scale = std::max<T>(tol.paramTol, limits_ws.eps_world);
-        }
+        T geom_extent = (bbmax - bbmin).norm();
+        geom_extent = std::max<T>(geom_extent, tol.paramTol);
+
+        // Estimate a representative Jacobian magnitude at the domain center
+        T u_mid = (surfaceDomain.first.first + surfaceDomain.first.second)/T(2);
+        T v_mid = (surfaceDomain.second.first + surfaceDomain.second.second)/T(2);
+        auto [Su_c, Sv_c] = evaluatePartials(u_mid, v_mid, tol);
+        T J_bvh = std::max(Su_c.norm(), Sv_c.norm());
+        J_bvh = std::max<T>(J_bvh, tol.paramTol);
 
         // Pre-reserve to avoid reallocation that would invalidate references during refinement
         {
@@ -1183,22 +1146,26 @@ public:
 
         // Important: iterate over a snapshot of current size because vector grows during refinement.
         // Work on a local copy per element to avoid reference invalidation if pushes occur.
-        auto limits_rb = NumericalLimits<T>::derive(tol, world_scale);
+        auto limits_rb = NumericalLimits<T>::derive(tol, J_bvh);
         T tol_clamped = std::max<T>(tol.paramTol, limits_rb.eps_param);
         int refine_budget = std::clamp(6 + int(std::ceil(std::log10(double(1.0 / tol_clamped)))) + max_depth/2, 8, 24);
         size_t initial = bvh_patches.size();
         for (size_t i = 0; i < initial; ++i) {
             SurfacePatchAABB local = bvh_patches[i];                   // copy
-            refinePatchNearRayRecursive(rayOrigin, rayDir, local, tol, world_scale, /*depth*/0, max_depth, refine_budget);
+            refinePatchNearRayRecursive(rayOrigin, rayDir, local, tol, /*depth*/0, max_depth, refine_budget);
             bvh_patches[i] = local;                                    // write back
         }
         // BVH remains valid; patches were refined in-place.
         return bvh_patches;
     }
 
-    const std::vector<SurfacePatchAABB>& getBVH(int grid, const Euclid::Tolerance& tol, T world_scale = T(0), int max_depth = 9) const {
+    const std::vector<SurfacePatchAABB>& getBVH(
+        int grid,
+        const Euclid::Tolerance& tol,
+        int max_depth = 9) const
+    {
         if (!bvh_valid) {
-            generateBVH(grid, tol, world_scale, max_depth);
+            generateBVH(grid, tol, max_depth);
         }
         return bvh_patches;
     }
