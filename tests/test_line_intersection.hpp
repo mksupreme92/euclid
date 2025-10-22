@@ -32,8 +32,8 @@ inline void testLineSurfaceFrequencyResolution() {
 
     Line<double,3> line(Point<double,3>({0, 0, 0}), Eigen::Vector3d({1, 0, 0}));
     double freq = 1.0;
-    double failFreq = -1.0;
-    int iteration_count = 0;
+    [[maybe_unused]] double failFreq = -1.0;
+    [[maybe_unused]] int iteration_count = 0;
 
     // For profiling and scaling analysis
     std::vector<double> freqs, times, avg_times;

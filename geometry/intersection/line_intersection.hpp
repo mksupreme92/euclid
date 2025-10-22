@@ -759,7 +759,7 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, 
             40, 2000
           );
 
-    auto patches = s.getBVH(adaptive_grid, tol, surface_extent, 9);
+    auto patches = s.getBVH(adaptive_grid, tol, 9);
 
     // Build ray intervals from BVH patch AABBs
     std::vector<std::pair<T, T>> t_intervals;
