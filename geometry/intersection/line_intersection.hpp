@@ -743,7 +743,6 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, 
         gmin = gmin.cwiseMin(p); gmax = gmax.cwiseMax(p);
     }
     T diag = (gmax - gmin).norm();
-    T half_range = std::max<T>(diag, T(1)) * T(6);
 
     // Set up min step sizes based on tolerance model
     T min_step_u = tol.paramTol;
@@ -751,34 +750,97 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, 
     min_step_u = std::max(min_step_u, tol.evaluateEpsilon(std::max(u_extent, T(1))));
     min_step_v = std::max(min_step_v, tol.evaluateEpsilon(std::max(v_extent, T(1))));
 
-    // Bounded grid seeding in (u,v)
+    // Bounded grid seeding in (u,v) with optional refinement pass
     struct Candidate {T u,v,t,dist;};
     std::vector<Candidate> candidates;
-    T curvature_factor = std::clamp(diag / (tol.absTol + tol.evaluateEpsilon(diag)), T(1), T(16));
-    int grid = max_grid > 0 ? max_grid : int(std::min<T>(8 * curvature_factor, 64));
-    for(int i=0;i<=grid;++i){
-        for(int j=0;j<=grid;++j){
-            T u = u0 + (u1-u0)*i/grid;
-            T v = v0 + (v1-v0)*j/grid;
-            Point<T,N> S = s.evaluate(u,v);
-            T t = dir.dot(S.coords - P0)/dir.squaredNorm();
-            Point<T,N> L(P0 + t*dir);
-            T dist = (S - L).norm();
-            if(dist < tol.absTol + tol.evaluateEpsilon(diag)*T(10))
-                candidates.push_back({u,v,t,dist});
+
+    T curvature_factor = std::clamp(diag / (tol.absTol + tol.evaluateEpsilon(diag)), T(1), T(32));
+    int grid = max_grid > 0 ? max_grid : std::clamp<int>(int(16 * curvature_factor), 16, 256);
+
+    auto seedCandidates = [&](int g){
+        for(int i=0;i<=g;++i){
+            for(int j=0;j<=g;++j){
+                T u = u0 + (u1-u0)*i/g;
+                T v = v0 + (v1-v0)*j/g;
+                Point<T,N> S = s.evaluate(u,v);
+                T t = dir.dot(S.coords - P0)/dir.squaredNorm();
+                Point<T,N> L(P0 + t*dir);
+                T dist = (S - L).norm();
+                if(dist < tol.absTol + tol.evaluateEpsilon(diag)*T(10)){
+                    candidates.push_back({u,v,t,dist});
+                }
+            }
+        }
+    };
+
+    seedCandidates(grid);
+
+    // If we appear under-seeded for highly oscillatory geometry, add a second, denser pass.
+    if ((int)candidates.size() < grid/2 || curvature_factor > T(8)) {
+        int grid_refined = std::min(grid * 2, 256);
+        seedCandidates(grid_refined);
+    }
+
+    // Ensure candidates are processed in a stable order by (u,v)
+    if (!candidates.empty()) {
+        std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b){
+            if (a.u == b.u) return a.v < b.v; return a.u < b.u;
+        });
+    }
+
+    // --------------------------------------------------
+    // Multi‑resolution refinement: detect oscillatory residuals and re‑seed locally
+    // --------------------------------------------------
+    if (!candidates.empty() && curvature_factor > T(4)) {
+        std::vector<Candidate> fine_candidates;
+        fine_candidates.reserve(candidates.size() * 2);
+        for (size_t i = 1; i < candidates.size(); ++i) {
+            const auto& c0 = candidates[i-1];
+            const auto& c1 = candidates[i];
+            // Detect oscillatory residual: alternating distance slope sign
+            T slope0 = (c1.dist - c0.dist);
+            if (i+1 < candidates.size()) {
+                T slope1 = (candidates[i+1].dist - c1.dist);
+                T osc_thresh = std::max<T>(tol.absTol * T(5), tol.evaluateEpsilon(std::max(diag, T(1))));
+                if (slope0 * slope1 < 0 && std::abs(slope0) > osc_thresh) {
+                    T umid = (c0.u + c1.u) * T(0.5);
+                    T vmid = (c0.v + c1.v) * T(0.5);
+                    Point<T,N> S = s.evaluate(umid, vmid);
+                    T t = dir.dot(S.coords - P0) / dir.squaredNorm();
+                    Point<T,N> L(P0 + t * dir);
+                    T dist = (S - L).norm();
+                    if (dist < tol.absTol * T(50)) {
+                        fine_candidates.push_back({umid, vmid, t, dist});
+                    }
+                }
+            }
+        }
+        if (!fine_candidates.empty()) {
+            candidates.insert(candidates.end(), fine_candidates.begin(), fine_candidates.end());
         }
     }
 
-    // Newton refinement for each candidate
+    // Param/world-space dedup containers and tolerances
+    struct Accepted { T u, v, t; Eigen::Matrix<T,N,1> mid; };
+    std::vector<Accepted> accepted;
+
+    // Dedup radii: use both param-space and world-space criteria
+    T dedup_world = std::max<T>(
+        tol.evaluateEpsilon(std::max(diag, T(1))) * T(2),
+        tol.absTol * T(20));
+    T dedup_u = std::max<T>(tol.paramTol * T(4), tol.evaluateEpsilon(std::max(u_extent, T(1))) * T(10));
+    T dedup_v = std::max<T>(tol.paramTol * T(4), tol.evaluateEpsilon(std::max(v_extent, T(1))) * T(10));
+
+    // Cache derivative step sizes once (per call)
+    const T uh = std::max(min_step_u * T(0.0625), std::numeric_limits<T>::epsilon() * 10);
+    const T vh = std::max(min_step_v * T(0.0625), std::numeric_limits<T>::epsilon() * 10);
+
     std::vector<Point<T,N>> intersections;
-    T dedup_tol = tol.absTol + tol.evaluateEpsilon(std::max(diag, T(1))) * T(2);
-    const T uh = std::max(min_step_u, std::numeric_limits<T>::epsilon() * 10);
-    const T vh = std::max(min_step_v, std::numeric_limits<T>::epsilon() * 10);
 
     for(const auto& cand : candidates){
         T u = cand.u, v = cand.v, t = cand.t;
         T prevDist = cand.dist;
-        int max_newton=25;
+        int max_newton = (curvature_factor > T(8)) ? 40 : 25;
         T alpha = T(1.0);
         for(int iter=0; iter<max_newton; ++iter){
             Point<T,N> Spt = s.evaluate(u, v);
@@ -813,10 +875,10 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, 
             }
             T du = delta(0,0), dv = delta(1,0), dt = delta(2,0);
             // Adaptive alpha update
-            if (iter > 5 && prevDist > 0 && (Spt.coords - (P0 + t*dir)).norm() > prevDist * T(0.99))
-                alpha *= T(0.8);
+            if (iter > 3 && prevDist > 0 && (Spt.coords - (P0 + t*dir)).norm() > prevDist * T(0.995))
+                alpha *= T(0.85);
             else
-                alpha = (iter<5) ? T(0.8) : T(0.95);
+                alpha = (iter<3) ? T(0.9) : T(0.97);
             u += alpha * du; v += alpha * dv; t += alpha * dt;
             u = std::clamp(u, u0, u1);
             v = std::clamp(v, v0, v1);
@@ -830,16 +892,24 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, 
         Point<T,N> Sfinal = s.evaluate(u, v);
         Point<T,N> Lfinal(P0 + t*dir);
         T finalDist = (Sfinal - Lfinal).norm();
-        T curvature_boost = std::min<T>(T(5) + diag * T(0.05), T(20));
+        T curvature_boost = std::min<T>(T(8) + diag * T(0.1), T(32));
         if(finalDist <= tol.absTol + tol.evaluateEpsilon(std::max(diag, T(1))) * curvature_boost){
-            // Dedup by world distance
             Point<T,N> mid((Sfinal.coords + Lfinal.coords) * T(0.5));
+
+            // Param-space and world-space deduplication
             bool duplicate = false;
-            for(const auto& p : intersections){
-                if((p.coords - mid.coords).norm() < dedup_tol){ duplicate = true; break; }
+            for (const auto& a : accepted) {
+                if (std::abs(a.u - u) <= dedup_u && std::abs(a.v - v) <= dedup_v) { duplicate = true; break; }
+                if ((a.mid - mid.coords).norm() <= dedup_world) { duplicate = true; break; }
             }
-            if(!duplicate)
+            if (!duplicate) {
+                accepted.push_back({u, v, t, mid.coords});
                 intersections.push_back(mid);
+
+                // Record detailed hit for downstream consumers (tests may ignore)
+                ParamHit<T,N> hit; hit.t_line = t; hit.u_curve = u; hit.v_surface = v; hit.p = mid; hit.tangential = false;
+                result.addHit(hit);
+            }
         }
     }
 

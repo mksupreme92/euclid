@@ -4,9 +4,18 @@
 #include "geometry/geometry.hpp"
 #include "geometry/intersection/line_intersection.hpp"
 #include "test_utilities.hpp"
+
 #include <chrono>
 #include <ctime>
 #include <iomanip>
+
+inline std::string currentTimestamp() {
+    auto now = std::chrono::system_clock::now();
+    std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+    std::ostringstream oss;
+    oss << std::put_time(std::localtime(&now_c), "%Y-%m-%d %H:%M:%S");
+    return oss.str();
+}
 
 namespace Euclid {
 namespace Tests {
@@ -1318,6 +1327,71 @@ inline void testLineMultiIntersectionSurface() {
  
 }
 
+inline void testLineTorusScaleResolution() {
+    using namespace Euclid::Geometry;
+    using T = double;
+    constexpr int N = 3;
+
+    std::cout << "---- Line–Torus Scale Resolution Test ----\n";
+    std::cout << "🕒 Test started at: " << currentTimestamp() << "\n";
+
+    // Fixed line through origin
+    Line<T, N> line(Point<T, N>({0.0, 0.0, 0.0}), Eigen::Matrix<T, N, 1>(1.0, 0.0, 0.0));
+
+    // Torus definition parameters
+    const T R0 = 10.0;  // major radius
+    const T r0 = 2.5;   // minor radius
+    const T shrinkFactor = 0.8; // geometric shrink step
+
+    int expected = 4;
+    int found = 0;
+    int step = 0;
+    while (true) {
+        T R = R0 * std::pow(shrinkFactor, step);
+        T r = r0 * std::pow(shrinkFactor, step);
+
+        Surface<T, N> torus(
+            [R, r](double u, double v) {
+                return Point<T, N>({
+                    (R + r * std::cos(v)) * std::cos(u),
+                    (R + r * std::cos(v)) * std::sin(u),
+                    r * std::sin(v)
+                });
+            },
+            {{0.0, 2 * M_PI}, {0.0, 2 * M_PI}}
+        );
+        auto t0 = std::chrono::high_resolution_clock::now();
+        auto res = intersect(line, torus);
+        auto t1 = std::chrono::high_resolution_clock::now();
+
+        found = static_cast<int>(res.points.size());
+        std::cout << std::scientific << std::setprecision(8) << R << " " << r
+                  << "  expected=" << std::setw(3) << expected
+                  << "  found=" << std::setw(3) << found
+                  << "  runtime(ms)=";
+        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        std::cout << std::fixed << std::setprecision(3) << std::setw(10) << ms << "\n";
+
+        // Failure if found < expected
+        if (found < expected) {
+            std::cout << "[FAIL] Resolution limit reached at R="
+                      << std::scientific << std::setprecision(8) << R
+                      << ", r=" << std::scientific << std::setprecision(8) << r << "\n";
+            break;
+        }
+        // Failure if found > expected * 2
+        if (found > expected * 2) {
+            std::cout << "[FAIL] Excess intersections detected at R="
+                      << std::scientific << std::setprecision(8) << R
+                      << ", r=" << std::scientific << std::setprecision(8) << r
+                      << " (found=" << found << ", expected=" << expected << ")\n";
+            break;
+        }
+        ++step;
+    }
+    std::cout << "✅ Test completed at: " << currentTimestamp() << "\n";
+}
+
 inline void testLineIntersection() {
     using namespace Euclid;
     using std::cout;
@@ -1335,6 +1409,7 @@ inline void testLineIntersection() {
     //testLineFaceParallelThreshold();
     testLineSurfaceIntersection();
     testLineSurfaceFrequencyResolution();
+    testLineTorusScaleResolution();
     //testLineSurfaceFrequencyScaling();
     //testLineMultiIntersectionSurface();
 }
