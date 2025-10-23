@@ -21,7 +21,7 @@ namespace Euclid {
 namespace Tests {
 
 // Frequency resolution test for line–surface intersection (sinusoidal surface)
-inline void testLineSurfaceFrequencyResolution() {
+inline void testLineRibbonSurfaceFrequencyResolution() {
     using namespace Euclid;
     using std::cout;
 
@@ -1270,62 +1270,6 @@ inline void testLineFaceIntersection() {
     }
 }
 
-inline void testLineMultiIntersectionSurface() {
-    using namespace Euclid;
-    using std::cout;
-
-    
-    
-    // 2. Small Torus (multiple intersections through tube)
-    {
-        double R = 4.0, r = 0.5;
-        auto torus = Surface<double,3>(
-            [R,r](double u,double v){
-                return Point<double,3>({
-                    (R + r*std::cos(v))*std::cos(u),
-                    (R + r*std::cos(v))*std::sin(u),
-                    r*std::sin(v)
-                });
-            },
-            {{0.0, 2*M_PI}, {0.0, 2*M_PI}}
-        );
-        // Line through torus tube along x-axis at y=0, z=0
-        Line l(Point<double,3>({1.0,0,0}), Eigen::Vector3d({1,0,0}));
-        auto result = intersect(l, torus);
-        std::cout << "DEBUG: Torus intersection count: " << result.points.size() << "\n";
-        for (size_t i=0;i<result.points.size();++i){
-            const auto& p = result.points[i];
-            std::cout << "DEBUG: Torus point " << i << ": (" << p[0] << "," << p[1] << "," << p[2] << ")\n";
-        }
-        printTest("Torus: line through tube intersects multiple times", result.intersects && result.points.size() >= 2);
-    }
-    
-    // 2. Very small Torus (multiple intersections through tube)
-    {
-        double R = 0.1, r = 0.092;
-        auto torus = Surface<double,3>(
-            [R,r](double u,double v){
-                return Point<double,3>({
-                    (R + r*std::cos(v))*std::cos(u),
-                    (R + r*std::cos(v))*std::sin(u),
-                    r*std::sin(v)
-                });
-            },
-            {{0.0, 2*M_PI}, {0.0, 2*M_PI}}
-        );
-        // Line through torus tube along x-axis at y=0, z=0
-        Line l(Point<double,3>({1.0,0,0}), Eigen::Vector3d({1,0,0}));
-        auto result = intersect(l, torus);
-        std::cout << "DEBUG: Torus intersection count: " << result.points.size() << "\n";
-        for (size_t i=0;i<result.points.size();++i){
-            const auto& p = result.points[i];
-            std::cout << "DEBUG: Torus point " << i << ": (" << p[0] << "," << p[1] << "," << p[2] << ")\n";
-        }
-        printTest("Very Small Torus: line through tube intersects multiple times", result.intersects && result.points.size() >= 2);
-    }
-
- 
-}
 
 inline void testLineTorusScaleResolution() {
     using namespace Euclid::Geometry;
@@ -1392,26 +1336,142 @@ inline void testLineTorusScaleResolution() {
     std::cout << "✅ Test completed at: " << currentTimestamp() << "\n";
 }
 
+inline void testLineSphereScaleResolution() {
+    using namespace Euclid::Geometry;
+    using T = double;
+    constexpr int N = 3;
+
+    std::cout << "---- Line–Sphere Scale Resolution Test ----\n";
+    std::cout << "🕒 Test started at: " << currentTimestamp() << "\n";
+
+    Line<T, N> line(Point<T, N>({0.0, 0.0, -2.0}), Eigen::Matrix<T, N, 1>(0.0, 0.0, 1.0));
+
+    const T R0 = 1.0;
+    const T shrinkFactor = 0.8;
+    int expected = 2;
+    int found = 0;
+    int step = 0;
+
+    while (true) {
+        T R = R0 * std::pow(shrinkFactor, step);
+
+        Surface<T, N> sphere(
+            [R](double u, double v) {
+                return Point<T, N>({
+                    R * std::sin(u) * std::cos(v),
+                    R * std::sin(u) * std::sin(v),
+                    R * std::cos(u)
+                });
+            },
+            {{0.0, M_PI}, {0.0, 2 * M_PI}}
+        );
+
+        auto t0 = std::chrono::high_resolution_clock::now();
+        auto res = intersect(line, sphere);
+        auto t1 = std::chrono::high_resolution_clock::now();
+
+        found = static_cast<int>(res.points.size());
+        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        std::cout << std::scientific << std::setprecision(8)
+                  << R << "  expected=" << std::setw(3) << expected
+                  << "  found=" << std::setw(3) << found
+                  << "  runtime(ms)=" << std::fixed << std::setprecision(3) << std::setw(10) << ms << "\n";
+
+        if (found < expected) {
+            std::cout << "[FAIL] Resolution limit reached at R=" << std::scientific << R << "\n";
+            break;
+        }
+        if (found > expected * 2) {
+            std::cout << "[FAIL] Excess intersections detected at R=" << std::scientific << R
+                      << " (found=" << found << ", expected=" << expected << ")\n";
+            break;
+        }
+
+        ++step;
+    }
+
+    std::cout << "✅ Test completed at: " << currentTimestamp() << "\n";
+}
+
+inline void testLineSaddleScaleResolution() {
+    using namespace Euclid::Geometry;
+    using T = double;
+    constexpr int N = 3;
+
+    std::cout << "---- Line–Saddle Scale Resolution Test ----\n";
+    std::cout << "🕒 Test started at: " << currentTimestamp() << "\n";
+
+    // Line passing through both sides of the saddle, yielding two intersections within the domain
+    Line<T, N> line(Point<T, N>({-1.0, 0.0, -1.0}), Point<T, N>({1.0, 0.0, 1.0}));
+
+    const T scale0 = 1.0;
+    const T shrinkFactor = 0.8;
+    int expected = 2; // usually 2 crossings
+    int found = 0;
+    int step = 0;
+
+    while (true) {
+        T s = scale0 * std::pow(shrinkFactor, step);
+
+        Surface<T, N> saddle(
+            [s](double u, double v) {
+                return Point<T, N>({
+                    s * u,
+                    s * v,
+                    s * (u*u - v*v)
+                });
+            },
+            {{-1.0, 1.0}, {-1.0, 1.0}}
+        );
+
+        auto t0 = std::chrono::high_resolution_clock::now();
+        auto res = intersect(line, saddle);
+        auto t1 = std::chrono::high_resolution_clock::now();
+
+        found = static_cast<int>(res.points.size());
+        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        std::cout << std::scientific << std::setprecision(8)
+                  << s << "  expected=" << std::setw(3) << expected
+                  << "  found=" << std::setw(3) << found
+                  << "  runtime(ms)=" << std::fixed << std::setprecision(3) << std::setw(10) << ms << "\n";
+
+        if (found < expected) {
+            std::cout << "[FAIL] Resolution limit reached at scale=" << std::scientific << s << "\n";
+            break;
+        }
+        if (found > expected * 2) {
+            std::cout << "[FAIL] Excess intersections detected at scale=" << std::scientific << s
+                      << " (found=" << found << ", expected=" << expected << ")\n";
+            break;
+        }
+
+        ++step;
+    }
+
+    std::cout << "✅ Test completed at: " << currentTimestamp() << "\n";
+}
+
 inline void testLineIntersection() {
     using namespace Euclid;
     using std::cout;
     cout << "\nLine Intersection Tests\n" << std::endl;
     
-    //testLineLineIntersection();
-    //testLineLineParallelThreshold();
-    //testLineSegmentIntersection();
-    //testLineSegmentParallelThreshold();
-    //testLineCurveIntersection();
-    //testLinePlaneIntersection();
-    //testLinePlaneIntersectionND();
-    //testLinePlaneParallelThreshold();
-    //testLineFaceIntersection();
-    //testLineFaceParallelThreshold();
+    testLineLineIntersection();
+    testLineLineParallelThreshold();
+    testLineSegmentIntersection();
+    testLineSegmentParallelThreshold();
+    testLineCurveIntersection();
+    testLinePlaneIntersection();
+    testLinePlaneIntersectionND();
+    testLinePlaneParallelThreshold();
+    testLineFaceIntersection();
+    testLineFaceParallelThreshold();
     testLineSurfaceIntersection();
-    testLineSurfaceFrequencyResolution();
+    testLineRibbonSurfaceFrequencyResolution();
     testLineTorusScaleResolution();
-    //testLineSurfaceFrequencyScaling();
-    //testLineMultiIntersectionSurface();
+    testLineSphereScaleResolution();
+    testLineSaddleScaleResolution();
+    testLineSurfaceFrequencyScaling();
 }
 
 } // namespace Tests
