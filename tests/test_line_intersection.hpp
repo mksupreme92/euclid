@@ -1084,75 +1084,114 @@ inline void testLineSurfaceIntersection() {
         auto result = intersect(l, surface5);
         printTest("5D Line-Surface no intersection", !result.intersects);
     }
+    
+    // 4D sinusoidal surface (ribbon with multiple intersections)
+    {
+        using namespace Euclid;
 
-    // --- Additional tests: Lines from start/end of previously failing segment-surface intersections ---
-    // 3D: start (0.5,0.5,-1), end (0.5,0.5,1), surface z=0 (parametric surface)
-    {
-        // 3D surface z = 0
-        auto surface = Surface<double,3>(
-            [](double u, double v) { return Point<double,3>({u, v, 0.0}); },
-            std::make_pair(std::make_pair(-1.0, 1.0), std::make_pair(-1.0, 1.0))
+        // Line along x-axis at y=0.25, w=0
+        Line l4(Point<double,4>({0,0.25,0,0}), Eigen::Matrix<double,4,1>({1.0,0.0,0.0,0.0}));
+
+        // Ribbon surface: small thickness along v
+        auto surface4D = Surface<double,4>(
+            [](double u,double v){
+                double amplitude = 1.0;
+                double frequency = 4.0;      // number of peaks
+                double width = 0.05;         // ribbon half-width
+                return Point<double,4>({
+                    u,
+                    0.25 + width * (v - 0.5),    // ribbon along y
+                    amplitude * std::sin(frequency*M_PI*u),
+                    0.0                          // keep w=0 for simplicity
+                });
+            },
+            {{0.0, 4.0}, {0.0, 1.0}}        // u and v domains
         );
 
-        Point<double,3> seg_start({0.5,0.5,-1});
-        Point<double,3> seg_end({0.5,0.5,1});
-        Eigen::Vector3d dir = seg_end.coords - seg_start.coords;
-        Line l(seg_start, dir);
-        std::cout << "DEBUG: 3D extra test - Line start: (" << seg_start[0] << "," << seg_start[1] << "," << seg_start[2] << "), ";
-        std::cout << "direction: (" << dir[0] << "," << dir[1] << "," << dir[2] << ")\n";
-        std::cout << "DEBUG: Parametric surface z=0\n";
-        auto result = intersect(l, surface);
-        std::cout << "DEBUG: Intersection result: intersects=" << result.intersects << ", #points=" << result.points.size() << "\n";
-        if (result.intersects && !result.points.empty()) {
-            const auto& p = result.points[0];
-            std::cout << "DEBUG: Intersection point: (" << p[0] << ", " << p[1] << ", " << p[2] << ")\n";
+        // Line-surface intersection
+        auto result4 = intersect(l4, surface4D);
+        std::cout << "DEBUG: 4D sinusoidal ribbon surface intersection count: " << result4.points.size() << "\n";
+        for (size_t i=0;i<result4.points.size();++i){
+            const auto& p = result4.points[i];
+            std::cout << "DEBUG: 4D surface point " << i << ": ("
+                      << p[0] << "," << p[1] << "," << p[2] << "," << p[3] << ")\n";
         }
-        printTest("3D Line-Surface (segment start/end test): has intersection", result.intersects);
-    }
-    // 4D: start (0.5,0.5,-1,0), end (0.5,0.5,1,0), surface w=0 (parametric surface)
-    {
-        // 4D surface w = 0
-        auto surface4 = Surface<double,4>(
-            [](double u, double v) { return Point<double,4>({u, v, 0.0, 0.0}); },
-            std::make_pair(std::make_pair(-1.0, 1.0), std::make_pair(-1.0, 1.0))
+        printTest("4D sinusoidal ribbon surface: line intersects multiple peaks", result4.intersects && result4.points.size() >= 2);
+
+        // Export mesh for inspection (project 4D -> 3D by dropping w)
+        std::string filename = "4d_sinusoidal_ribbon.obj";
+        int M = 100; // samples along u
+        int N = 10;  // ribbon thickness resolution along v
+
+        // Simple projection lambda: drop w
+        auto projectedSurface = Surface<double,3>(
+            [&surface4D](double u,double v){
+                Point<double,4> p4 = surface4D.evaluate(u,v);   // <-- use evaluate() instead of operator()
+                return Point<double,3>({p4[0], p4[1], p4[2]});
+            },
+            {{0.0, 4.0}, {0.0, 1.0}}   // use same domain
         );
-        Point<double,4> seg_start4({0.5,0.5,-1,0});
-        Point<double,4> seg_end4({0.5,0.5,1,0});
-        Eigen::Matrix<double,4,1> dir4 = seg_end4.coords - seg_start4.coords;
-        Line l4(seg_start4, dir4);
-        std::cout << "DEBUG: 4D extra test - Line start: (" << seg_start4[0] << "," << seg_start4[1] << "," << seg_start4[2] << "," << seg_start4[3] << "), ";
-        std::cout << "direction: (" << dir4[0] << "," << dir4[1] << "," << dir4[2] << "," << dir4[3] << ")\n";
-        std::cout << "DEBUG: Parametric surface w=0\n";
-        auto result4 = intersect(l4, surface4);
-        std::cout << "DEBUG: Intersection result: intersects=" << result4.intersects << ", #points=" << result4.points.size() << "\n";
-        if (result4.intersects && !result4.points.empty()) {
-            const auto& p = result4.points[0];
-            std::cout << "DEBUG: Intersection point: (" << p[0] << ", " << p[1] << ", " << p[2] << ", " << p[3] << ")\n";
+
+        auto mesh = generateSurfaceMesh(projectedSurface, M, N);
+        if (auto objData = mesh.exportOBJ()) {
+            std::ofstream file(filename);
+            file << *objData;
+            file.close();
+            std::cout << "Exported 4d_sinusoidal_ribbon.obj successfully.\n";
         }
-        printTest("4D Line-Surface (segment start/end test): has intersection", result4.intersects);
     }
-    // 5D: start (0.5,0.5,-1,0,0), end (0.5,0.5,1,0,0), surface z=0 (parametric surface)
+    
+    // Sphere (2 intersections)
     {
-        // 5D surface z = 0
-        auto surface5 = Surface<double,5>(
-            [](double u, double v) { return Point<double,5>({u, v, 0.0, 0.0, 0.0}); },
-            std::make_pair(std::make_pair(-1.0, 1.0), std::make_pair(-1.0, 1.0))
-        );
-        Point<double,5> seg_start5({0.5,0.5,-1,0,0});
-        Point<double,5> seg_end5({0.5,0.5,1,0,0});
-        Eigen::Matrix<double,5,1> dir5 = seg_end5.coords - seg_start5.coords;
-        Line l5(seg_start5, dir5);
-        std::cout << "DEBUG: 5D extra test - Line start: (" << seg_start5[0] << "," << seg_start5[1] << "," << seg_start5[2] << "," << seg_start5[3] << "," << seg_start5[4] << "), ";
-        std::cout << "direction: (" << dir5[0] << "," << dir5[1] << "," << dir5[2] << "," << dir5[3] << "," << dir5[4] << ")\n";
-        std::cout << "DEBUG: Parametric surface z=0\n";
-        auto result5 = intersect(l5, surface5);
-        std::cout << "DEBUG: Intersection result: intersects=" << result5.intersects << ", #points=" << result5.points.size() << "\n";
-        if (result5.intersects && !result5.points.empty()) {
-            const auto& p = result5.points[0];
-            std::cout << "DEBUG: Intersection point: (" << p[0] << ", " << p[1] << ", " << p[2] << ", " << p[3] << ", " << p[4] << ")\n";
+        auto sphere = Surface<double,3>(
+                                        [](double u, double v){
+                                            double r = 1.0;
+                                            return Point<double,3>({
+                                                r*std::sin(u)*std::cos(v),
+                                                r*std::sin(u)*std::sin(v),
+                                                r*std::cos(u)
+                                            });
+                                        },
+                                        {{0.0, M_PI}, {0.0, 2*M_PI}}
+                                        );
+        Line l(Point<double,3>({0,0,-2}), Eigen::Vector3d({0,0,1}));
+        auto result = intersect(l, sphere);
+        
+        std::cout << "DEBUG: Sphere intersection count: " << result.points.size() << "\n";
+        
+        for (size_t i=0;i<result.points.size();++i){
+            const auto& p = result.points[i];
+            std::cout << "DEBUG: Sphere point " << i << ": (" << p[0] << "," << p[1] << "," << p[2] << ")\n";
         }
-        printTest("5D Line-Surface (segment start/end test): has intersection", result5.intersects);
+        
+        printTest("Sphere: line through center intersects twice", result.intersects && result.points.size() == 2);
+        
     }
+
+    // Large Torus (multiple intersections through tube)
+    {
+        double R = 20.0, r = 5.0;
+        auto torus = Surface<double,3>(
+            [R,r](double u,double v){
+                return Point<double,3>({
+                    (R + r*std::cos(v))*std::cos(u),
+                    (R + r*std::cos(v))*std::sin(u),
+                    r*std::sin(v)
+                });
+            },
+            {{0.0, 2*M_PI}, {0.0, 2*M_PI}}
+        );
+        // Line through torus tube along x-axis at y=0, z=0
+        Line l(Point<double,3>({1.0,0,0}), Eigen::Vector3d({1,0,0}));
+        auto result = intersect(l, torus);
+        std::cout << "DEBUG: Torus intersection count: " << result.points.size() << "\n";
+        for (size_t i=0;i<result.points.size();++i){
+            const auto& p = result.points[i];
+            std::cout << "DEBUG: Torus point " << i << ": (" << p[0] << "," << p[1] << "," << p[2] << ")\n";
+        }
+        printTest("Large Torus: line through tube intersects multiple times", result.intersects && result.points.size() >= 2);
+    }
+
 }
 
 
@@ -1226,56 +1265,7 @@ inline void testLineMultiIntersectionSurface() {
     using namespace Euclid;
     using std::cout;
 
-    // 1. Sphere (2 intersections)
-    {
-        auto sphere = Surface<double,3>(
-                                        [](double u, double v){
-                                            double r = 1.0;
-                                            return Point<double,3>({
-                                                r*std::sin(u)*std::cos(v),
-                                                r*std::sin(u)*std::sin(v),
-                                                r*std::cos(u)
-                                            });
-                                        },
-                                        {{0.0, M_PI}, {0.0, 2*M_PI}}
-                                        );
-        Line l(Point<double,3>({0,0,-2}), Eigen::Vector3d({0,0,1}));
-        auto result = intersect(l, sphere);
-        
-        std::cout << "DEBUG: Sphere intersection count: " << result.points.size() << "\n";
-        
-        for (size_t i=0;i<result.points.size();++i){
-            const auto& p = result.points[i];
-            std::cout << "DEBUG: Sphere point " << i << ": (" << p[0] << "," << p[1] << "," << p[2] << ")\n";
-        }
-        
-        printTest("Sphere: line through center intersects twice", result.intersects && result.points.size() == 2);
-        
-    }
-
-    // 2. Large Torus (multiple intersections through tube)
-    {
-        double R = 20.0, r = 5.0;
-        auto torus = Surface<double,3>(
-            [R,r](double u,double v){
-                return Point<double,3>({
-                    (R + r*std::cos(v))*std::cos(u),
-                    (R + r*std::cos(v))*std::sin(u),
-                    r*std::sin(v)
-                });
-            },
-            {{0.0, 2*M_PI}, {0.0, 2*M_PI}}
-        );
-        // Line through torus tube along x-axis at y=0, z=0
-        Line l(Point<double,3>({1.0,0,0}), Eigen::Vector3d({1,0,0}));
-        auto result = intersect(l, torus);
-        std::cout << "DEBUG: Torus intersection count: " << result.points.size() << "\n";
-        for (size_t i=0;i<result.points.size();++i){
-            const auto& p = result.points[i];
-            std::cout << "DEBUG: Torus point " << i << ": (" << p[0] << "," << p[1] << "," << p[2] << ")\n";
-        }
-        printTest("Large Torus: line through tube intersects multiple times", result.intersects && result.points.size() >= 2);
-    }
+    
     
     // 2. Small Torus (multiple intersections through tube)
     {
@@ -1323,187 +1313,6 @@ inline void testLineMultiIntersectionSurface() {
             std::cout << "DEBUG: Torus point " << i << ": (" << p[0] << "," << p[1] << "," << p[2] << ")\n";
         }
         printTest("Very Small Torus: line through tube intersects multiple times", result.intersects && result.points.size() >= 2);
-    }
-
-    // 3. 3D sinusoidal surface (ribbon with multiple intersections)
-    {
-        using namespace Euclid;
-        // Line along x-axis at y=0.0 (center of ribbon)
-        Line l(Point<double,3>({0,0.0,0}), Eigen::Vector3d({1.0,0.0,0.0}));
-
-        // Proper 2D ribbon surface: width 0.5, v spreads across y axis
-        auto surface3D = Surface<double,3>(
-            [](double u,double v){
-                double amplitude = 1.0;
-                double frequency = 4.0;
-                double width = 1;
-                Point<double,3> p{u, (v - 0.5) * 2.0 * width, amplitude * std::sin(frequency*M_PI*u)};
-                //std::cout << "DEBUG: surface3D(u=" << u << ", v=" << v << ") = ("
-                //          << p[0] << "," << p[1] << "," << p[2] << ")\n";
-                return p;
-            },
-            {{0.0, 4.0}, {0.0, 1.0}}
-        );
-        // Line-surface intersection
-        auto result = intersect(l, surface3D);
-        std::cout << "DEBUG: 3D sinusoidal ribbon surface intersection count: " << result.points.size() << "\n";
-        for (size_t i=0;i<result.points.size();++i){
-            const auto& p = result.points[i];
-            std::cout << "DEBUG: 3D surface point " << i << ": (" << p[0] << "," << p[1] << "," << p[2] << ")\n";
-        }
-        printTest("3D sinusoidal ribbon surface: line intersects multiple peaks", result.intersects && result.points.size() >= 2);
-
-        // Export mesh for inspection (high resolution, 2D surface)
-        std::string filename = "3d_sinusoidal_ribbon.obj";
-        int M = 400; // samples along u (higher resolution)
-        int N = 40;  // ribbon width resolution along v (higher resolution)
-        auto mesh = generateSurfaceMesh(surface3D, M, N);
-        if (auto objData = mesh.exportOBJ()) {
-            std::ofstream file(filename);
-            file << *objData;
-            file.close();
-            std::cout << "Exported 3d_sinusoidal_ribbon.obj successfully.\n";
-        }
-        // Also output a simple .obj for intersection points as a point cloud for inspection
-        if (!result.points.empty()) {
-            std::ofstream pts("3d_sinusoidal_intersections.obj");
-            for (const auto& p : result.points) {
-                pts << "v " << p[0] << " " << p[1] << " " << p[2] << "\n";
-            }
-            pts.close();
-            std::cout << "Exported 3d_sinusoidal_intersections.obj (intersection points).\n";
-        }
-    }
-
-    // 3a. 3D high-frequency sinusoidal ribbon surface (multiple intersections)
-    {
-        using namespace Euclid;
-        // Line along x-axis at y=0.0 (center of ribbon)
-        Line l(Point<double,3>({0,0.0,0}), Eigen::Vector3d({1.0,0.0,0.0}));
-
-        // 2D ribbon surface, high frequency = 8, width = 1, v spreads across y axis
-        auto surface3D_highfreq = Surface<double,3>(
-            [](double u,double v){
-                double amplitude = 1.0;
-                double frequency = 8.0;
-                double width = 1;
-                Point<double,3> p{u, (v - 0.5) * 2.0 * width, amplitude * std::sin(frequency*M_PI*u)};
-                return p;
-            },
-            {{0.0, 4.0}, {0.0, 1.0}}
-        );
-        // Line-surface intersection
-        auto result = intersect(l, surface3D_highfreq);
-        std::cout << "DEBUG: 3D high-frequency sinusoidal ribbon surface intersection count: " << result.points.size() << "\n";
-        for (size_t i=0;i<result.points.size();++i){
-            const auto& p = result.points[i];
-            std::cout << "DEBUG: 3D highfreq surface point " << i << ": (" << p[0] << "," << p[1] << "," << p[2] << ")\n";
-        }
-        printTest("3D high-frequency sinusoidal ribbon surface: line intersects multiple peaks", result.intersects && result.points.size() >= 2);
-
-        // Export mesh for inspection (high resolution, 2D surface)
-        std::string filename = "3d_sinusoidal_ribbon_highfreq.obj";
-        int M = 400; // samples along u (higher resolution)
-        int N = 40;  // ribbon width resolution along v (higher resolution)
-        auto mesh = generateSurfaceMesh(surface3D_highfreq, M, N);
-        if (auto objData = mesh.exportOBJ()) {
-            std::ofstream file(filename);
-            file << *objData;
-            file.close();
-            std::cout << "Exported 3d_sinusoidal_ribbon_highfreq.obj successfully.\n";
-        }
-        // Output intersection points as a point cloud for inspection (optional)
-        if (!result.points.empty()) {
-            std::ofstream pts("3d_sinusoidal_highfreq_intersections.obj");
-            for (const auto& p : result.points) {
-                pts << "v " << p[0] << " " << p[1] << " " << p[2] << "\n";
-            }
-            pts.close();
-            std::cout << "Exported 3d_sinusoidal_highfreq_intersections.obj (intersection points).\n";
-        }
-    }
-
-    // 3b. 3D even higher-frequency sinusoidal ribbon surface (frequency = 16, 32, 64, 128)
-    for (double freq : {16.0, 32.0, 64.0, 128.0}) {
-        using namespace Euclid;
-        Line l(Point<double,3>({0,0.0,0}), Eigen::Vector3d({1.0,0.0,0.0}));
-        auto surface3D = Surface<double,3>(
-            [freq](double u, double v) {
-                double amplitude = 1.0;
-                double width = 1.0;
-                return Point<double,3>({u, (v - 0.5) * 2.0 * width, amplitude * std::sin(freq * M_PI * u)});
-            },
-            {{0.0, 4.0}, {0.0, 1.0}}
-        );
-        auto result = intersect(l, surface3D);
-        std::cout << "DEBUG: 3D sinusoidal ribbon freq=" << freq
-                  << " intersection count: " << result.points.size() << "\n";
-        size_t n_show = std::min<size_t>(result.points.size(), 5);
-        for (size_t i=0;i<n_show;++i){
-            const auto& p = result.points[i];
-            std::cout << "  freq=" << freq << " pt" << i << ": ("
-                      << p[0] << "," << p[1] << "," << p[2] << ")\n";
-        }
-        if (result.points.size() > n_show)
-            std::cout << "  ... (" << result.points.size() - n_show << " more points)\n";
-        printTest(("3D sinusoidal ribbon freq=" + std::to_string(int(freq)) + ": intersects").c_str(), result.intersects && result.points.size() >= 2);
-        // No OBJ export for these high-frequency tests
-    }
-
-    // 4. 4D sinusoidal surface (ribbon with multiple intersections)
-    {
-        using namespace Euclid;
-
-        // Line along x-axis at y=0.25, w=0
-        Line l4(Point<double,4>({0,0.25,0,0}), Eigen::Matrix<double,4,1>({1.0,0.0,0.0,0.0}));
-
-        // Ribbon surface: small thickness along v
-        auto surface4D = Surface<double,4>(
-            [](double u,double v){
-                double amplitude = 1.0;
-                double frequency = 4.0;      // number of peaks
-                double width = 0.05;         // ribbon half-width
-                return Point<double,4>({
-                    u,
-                    0.25 + width * (v - 0.5),    // ribbon along y
-                    amplitude * std::sin(frequency*M_PI*u),
-                    0.0                          // keep w=0 for simplicity
-                });
-            },
-            {{0.0, 4.0}, {0.0, 1.0}}        // u and v domains
-        );
-
-        // Line-surface intersection
-        auto result4 = intersect(l4, surface4D);
-        std::cout << "DEBUG: 4D sinusoidal ribbon surface intersection count: " << result4.points.size() << "\n";
-        for (size_t i=0;i<result4.points.size();++i){
-            const auto& p = result4.points[i];
-            std::cout << "DEBUG: 4D surface point " << i << ": ("
-                      << p[0] << "," << p[1] << "," << p[2] << "," << p[3] << ")\n";
-        }
-        printTest("4D sinusoidal ribbon surface: line intersects multiple peaks", result4.intersects && result4.points.size() >= 2);
-
-        // Export mesh for inspection (project 4D -> 3D by dropping w)
-        std::string filename = "4d_sinusoidal_ribbon.obj";
-        int M = 100; // samples along u
-        int N = 10;  // ribbon thickness resolution along v
-
-        // Simple projection lambda: drop w
-        auto projectedSurface = Surface<double,3>(
-            [&surface4D](double u,double v){
-                Point<double,4> p4 = surface4D.evaluate(u,v);   // <-- use evaluate() instead of operator()
-                return Point<double,3>({p4[0], p4[1], p4[2]});
-            },
-            {{0.0, 4.0}, {0.0, 1.0}}   // use same domain
-        );
-
-        auto mesh = generateSurfaceMesh(projectedSurface, M, N);
-        if (auto objData = mesh.exportOBJ()) {
-            std::ofstream file(filename);
-            file << *objData;
-            file.close();
-            std::cout << "Exported 4d_sinusoidal_ribbon.obj successfully.\n";
-        }
     }
 
  
