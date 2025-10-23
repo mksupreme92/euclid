@@ -728,178 +728,127 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, 
         result.description = "Line direction is zero";
         return result;
     }
-    const auto dir_hat = dir / dir_norm;
-    s.setBVHDirectionHint(dir_hat);
-
-    // Estimate extent using surface bounding box if available, else use domain extents
     auto domain = s.surfaceDomain;
     T u0 = domain.first.first, u1 = domain.first.second;
     T v0 = domain.second.first, v1 = domain.second.second;
     T u_extent = std::abs(u1 - u0);
     T v_extent = std::abs(v1 - v0);
-    T surface_extent = std::max(u_extent, v_extent);
-    T t_min = -10 * surface_extent, t_max = 10 * surface_extent;
+
+    // Estimate world bounding box to derive t-range
+    std::array<std::pair<T,T>,5> uvProbe = {{{u0,v0},{u1,v0},{u0,v1},{u1,v1},{(u0+u1)/2,(v0+v1)/2}}};
+    Eigen::Matrix<T,N,1> gmin = s.evaluate(uvProbe[0].first, uvProbe[0].second).coords;
+    Eigen::Matrix<T,N,1> gmax = gmin;
+    for (size_t i=1;i<uvProbe.size();++i){
+        auto p = s.evaluate(uvProbe[i].first, uvProbe[i].second).coords;
+        gmin = gmin.cwiseMin(p); gmax = gmax.cwiseMax(p);
+    }
+    T diag = (gmax - gmin).norm();
+    T half_range = std::max<T>(diag, T(1)) * T(6);
 
     // Set up min step sizes based on tolerance model
     T min_step_u = tol.paramTol;
     T min_step_v = tol.paramTol;
-    // Optionally, relate to world epsilon if surface_extent is large
-    min_step_u = std::max(min_step_u, tol.evaluateEpsilon(surface_extent));
-    min_step_v = std::max(min_step_v, tol.evaluateEpsilon(surface_extent));
+    min_step_u = std::max(min_step_u, tol.evaluateEpsilon(std::max(u_extent, T(1))));
+    min_step_v = std::max(min_step_v, tol.evaluateEpsilon(std::max(v_extent, T(1))));
 
-    // Refine BVH w.r.t. BOTH directions of the infinite line so patches behind P0 are not culled.
-    s.refineBVHNearRay(P0, dir_hat, tol);
-    s.refineBVHNearRay(P0, -dir_hat, tol);
-
-    // Adaptive grid: based on tolerance model
-    int adaptive_grid = max_grid > 0
-        ? max_grid
-        : std::clamp(
-            int(1.0 / std::sqrt(tol.paramTol)),
-            40, 2000
-          );
-
-    auto patches = s.getBVH(adaptive_grid, tol, 9);
-
-    // Build ray intervals from BVH patch AABBs
-    std::vector<std::pair<T, T>> t_intervals;
-    t_intervals.reserve(patches.size());
-    for (const auto& p : patches) {
-        bool hit; T t_enter, t_exit;
-        std::tie(hit, t_enter, t_exit) = rayAABBInterval<T, N>(P0, dir, p.minPoint.coords, p.maxPoint.coords, tol, surface_extent);
-        if (hit && t_exit >= t_min && t_enter <= t_max) {
-            t_intervals.emplace_back(
-                std::max(t_enter - tol.evaluateEpsilon(surface_extent), t_min),
-                std::min(t_exit + tol.evaluateEpsilon(surface_extent), t_max)
-            );
-        }
-    }
-    // Sort and merge overlapping intervals
-    std::sort(t_intervals.begin(), t_intervals.end(), [](const auto& a, const auto& b){ return a.first < b.first; });
-    std::vector<std::pair<T, T>> merged_intervals;
-    for (const auto& iv : t_intervals) {
-        if (merged_intervals.empty() || iv.first > merged_intervals.back().second) {
-            merged_intervals.push_back(iv);
-        } else {
-            merged_intervals.back().second = std::max(merged_intervals.back().second, iv.second);
+    // Bounded grid seeding in (u,v)
+    struct Candidate {T u,v,t,dist;};
+    std::vector<Candidate> candidates;
+    T curvature_factor = std::clamp(diag / (tol.absTol + tol.evaluateEpsilon(diag)), T(1), T(16));
+    int grid = max_grid > 0 ? max_grid : int(std::min<T>(8 * curvature_factor, 64));
+    for(int i=0;i<=grid;++i){
+        for(int j=0;j<=grid;++j){
+            T u = u0 + (u1-u0)*i/grid;
+            T v = v0 + (v1-v0)*j/grid;
+            Point<T,N> S = s.evaluate(u,v);
+            T t = dir.dot(S.coords - P0)/dir.squaredNorm();
+            Point<T,N> L(P0 + t*dir);
+            T dist = (S - L).norm();
+            if(dist < tol.absTol + tol.evaluateEpsilon(diag)*T(10))
+                candidates.push_back({u,v,t,dist});
         }
     }
 
-    // (u,v,t) Newton solver based on BVH patch midpoints
-    auto dedupHits = [&](std::vector<Point<T,N>>& hits, const Point<T,N>& newPt, T tol) {
-        for (const auto& h : hits) {
-            if ((h.coords - newPt.coords).norm() < tol) return false;
-        }
-        hits.emplace_back(newPt);
-        return true;
-    };
-
-    T tol_val = tol.evaluateEpsilon(surface_extent);
-
-    auto polishHit = [&](Point<T,N>& Spt, T& u, T& v, T& t) {
-        for (int i = 0; i < 2; ++i) {
-            Point<T,N> Lpt(P0 + t * dir);
-            Eigen::Matrix<T,N,1> R = Spt.coords - Lpt.coords;
-            if (R.norm() < tol_val) break;
-            T uh = std::max(tol_val, std::numeric_limits<T>::epsilon() * 10);
-            T vh = std::max(tol_val, std::numeric_limits<T>::epsilon() * 10);
-            Point<T,N> Sup = s.evaluate(std::min(u1,u+uh), v);
-            Point<T,N> Sum = s.evaluate(std::max(u0,u-uh), v);
-            Point<T,N> Svp = s.evaluate(u, std::min(v1,v+vh));
-            Point<T,N> Svm = s.evaluate(u, std::max(v0,v-vh));
-            Eigen::Matrix<T,N,1> Su = (Sup.coords - Sum.coords) / (2*uh);
-            Eigen::Matrix<T,N,1> Sv = (Svp.coords - Svm.coords) / (2*vh);
-            Eigen::Matrix<T,N,3> J;
-            for (int k = 0; k < N; ++k) { J(k,0)=Su[k]; J(k,1)=Sv[k]; J(k,2)=-dir[k]; }
-            Eigen::Matrix<T,N,1> negR = -R;
-            Eigen::Matrix<T,3,1> delta = J.colPivHouseholderQr().solve(negR);
-            u += delta(0,0); v += delta(1,0); t += delta(2,0);
-            Spt = s.evaluate(u,v);
-        }
-    };
-
+    // Newton refinement for each candidate
     std::vector<Point<T,N>> intersections;
-    T dedup_tol = tol_val * std::max<T>(2.0, std::sqrt(1.0 / tol.paramTol));
+    T dedup_tol = tol.absTol + tol.evaluateEpsilon(std::max(diag, T(1))) * T(2);
+    const T uh = std::max(min_step_u, std::numeric_limits<T>::epsilon() * 10);
+    const T vh = std::max(min_step_v, std::numeric_limits<T>::epsilon() * 10);
 
-    for (const auto& iv : merged_intervals) {
-        // Adaptive number of seeds per interval, proportional to tol
-        T interval_len = iv.second - iv.first;
-        int num_seeds = std::max(
-            1,
-            int(1.0 + interval_len * (1.0 / std::sqrt(tol.paramTol)))
-        );
-        for (int i = 0; i < num_seeds; ++i) {
-            T t_seed = iv.first + (iv.second - iv.first) * (i + 0.5) / num_seeds;
-            Eigen::Matrix<T,N,1> offset = Eigen::Matrix<T,N,1>::Random().normalized() * (tol_val * 10);
-            Point<T,N> P_seed(P0 + t_seed * dir + offset);
-            auto proj = s.projectPoint(P_seed.coords, tol);
-            T u = proj.u;
-            T v = proj.v;
-            T t = t_seed;
-
-            // Newton iteration: break on tolerance convergence, not on fixed iteration count
-            while (true) {
-                Point<T,N> Spt = s.evaluate(u, v);
-                Eigen::Matrix<T,N,1> R = Spt.coords - (P0 + t * dir);
-
-                // Partial derivatives
-                T uh = std::max(min_step_u, std::numeric_limits<T>::epsilon() * 10);
-                T vh = std::max(min_step_v, std::numeric_limits<T>::epsilon() * 10);
-                Point<T,N> Sup = s.evaluate(std::min(u1,u+uh), v);
-                Point<T,N> Sum = s.evaluate(std::max(u0,u-uh), v);
-                Point<T,N> Svp = s.evaluate(u, std::min(v1,v+vh));
-                Point<T,N> Svm = s.evaluate(u, std::max(v0,v-vh));
-                Eigen::Matrix<T,N,1> Su = (Sup.coords - Sum.coords) / (2*uh);
-                Eigen::Matrix<T,N,1> Sv = (Svp.coords - Svm.coords) / (2*vh);
-
-                Eigen::Matrix<T,N,3> J;
-                for (int k = 0; k < N; ++k) {
-                    J(k,0) = Su[k];
-                    J(k,1) = Sv[k];
-                    J(k,2) = -dir[k];
+    for(const auto& cand : candidates){
+        T u = cand.u, v = cand.v, t = cand.t;
+        T prevDist = cand.dist;
+        int max_newton=25;
+        T alpha = T(1.0);
+        for(int iter=0; iter<max_newton; ++iter){
+            Point<T,N> Spt = s.evaluate(u, v);
+            T up = std::min(u1, u+uh);
+            T um = std::max(u0, u-uh);
+            T vp = std::min(v1, v+vh);
+            T vm = std::max(v0, v-vh);
+            Point<T,N> Sup = s.evaluate(up, v);
+            Point<T,N> Sum = s.evaluate(um, v);
+            Point<T,N> Svp = s.evaluate(u, vp);
+            Point<T,N> Svm = s.evaluate(u, vm);
+            Eigen::Matrix<T,N,1> Su = (Sup.coords - Sum.coords) / (up - um);
+            Eigen::Matrix<T,N,1> Sv = (Svp.coords - Svm.coords) / (vp - vm);
+            Eigen::Matrix<T,N,1> R = Spt.coords - (P0 + t*dir);
+            Eigen::Matrix<T,N,3> J;
+            for(int k=0;k<N;++k){ J(k,0)=Su[k]; J(k,1)=Sv[k]; J(k,2)=-dir[k]; }
+            Eigen::Matrix<T,3,1> delta;
+            if constexpr (N == 3) {
+                Eigen::FullPivLU<Eigen::Matrix<T, 3, 3>> lu(J);
+                if (lu.isInvertible()) {
+                    delta = lu.solve(-R);
+                } else {
+                    Eigen::Matrix<T, 3, 3> JTJ = J.transpose() * J;
+                    Eigen::Matrix<T, 3, 1> JTR = J.transpose() * R;
+                    T damping = tol.evaluateEpsilon(std::max(diag, (T)1));
+                    for (int d = 0; d < 3; ++d) JTJ(d, d) += damping;
+                    delta = JTJ.colPivHouseholderQr().solve(-JTR);
                 }
-
-                Eigen::Matrix<T,3,1> delta = J.colPivHouseholderQr().solve(-R);
-                T du = delta(0,0), dv = delta(1,0), dtau = delta(2,0);
-
-                // Damping for stability
-                T alpha = 0.8;
-                u += alpha * du;
-                v += alpha * dv;
-                t += alpha * dtau;
-
-                // Clamp to domain
-                u = std::clamp(u, u0, u1);
-                v = std::clamp(v, v0, v1);
-
-                // Convergence condition based on tolerance model
-                bool converged =
-                    (std::abs(du) < 0.1 * min_step_u &&
-                     std::abs(dv) < 0.1 * min_step_v &&
-                     std::abs(dtau) < 0.1 * surface_extent) ||
-                    (R.norm() < tol.evaluateEpsilon(surface_extent));
-                if (converged) break;
+            } else {
+                // Generic ND fallback
+                delta = J.colPivHouseholderQr().solve(-R);
             }
-
-            // Check final residual
-            Point<T,N> Sfinal = s.evaluate(u,v);
-            Point<T,N> Lfinal(P0 + t * dir);
-            T dist = (Sfinal - Lfinal).norm();
-            if (dist <= tol_val * 5.0) {
-                polishHit(Sfinal, u, v, t);
-                Point<T,N> polished((Sfinal.coords + Lfinal.coords) * 0.5);
-                dedupHits(intersections, polished, dedup_tol);
+            T du = delta(0,0), dv = delta(1,0), dt = delta(2,0);
+            // Adaptive alpha update
+            if (iter > 5 && prevDist > 0 && (Spt.coords - (P0 + t*dir)).norm() > prevDist * T(0.99))
+                alpha *= T(0.8);
+            else
+                alpha = (iter<5) ? T(0.8) : T(0.95);
+            u += alpha * du; v += alpha * dv; t += alpha * dt;
+            u = std::clamp(u, u0, u1);
+            v = std::clamp(v, v0, v1);
+            Point<T,N> Snew = s.evaluate(u, v);
+            Point<T,N> Lnew(P0 + t*dir);
+            T dist = (Snew - Lnew).norm();
+            bool converged = (std::abs(dist - prevDist) < tol.evaluateEpsilon(std::max(diag, T(1))) * T(0.5));
+            prevDist = dist;
+            if(converged) break;
+        }
+        Point<T,N> Sfinal = s.evaluate(u, v);
+        Point<T,N> Lfinal(P0 + t*dir);
+        T finalDist = (Sfinal - Lfinal).norm();
+        T curvature_boost = std::min<T>(T(5) + diag * T(0.05), T(20));
+        if(finalDist <= tol.absTol + tol.evaluateEpsilon(std::max(diag, T(1))) * curvature_boost){
+            // Dedup by world distance
+            Point<T,N> mid((Sfinal.coords + Lfinal.coords) * T(0.5));
+            bool duplicate = false;
+            for(const auto& p : intersections){
+                if((p.coords - mid.coords).norm() < dedup_tol){ duplicate = true; break; }
             }
+            if(!duplicate)
+                intersections.push_back(mid);
         }
     }
 
-    s.clearBVHDirectionHint();
     if (!intersections.empty()) {
         result.intersects = true;
         result.points = intersections;
-        result.description = "Line intersects surface (u,v,t Newton solver)";
+        result.description = "Line intersects surface (bounded grid Newton)";
     } else {
-        result.description = "Line does not intersect surface (u,v,t Newton)";
+        result.description = "Line does not intersect surface (bounded grid Newton)";
     }
     return result;
 }
