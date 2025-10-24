@@ -749,9 +749,30 @@ inline void testLineCurveIntersection() {
         auto result = intersect(l, parabola);
         printTest("Line-Curve (parabola) intersection: has intersection", result.intersects);
         if (result.intersects && !result.points.empty()) {
-            const auto& p = result.points[0];
-            printTest("Line-Curve intersection point", true);
-            std::cout << "Intersection at: (" << p[0] << ", " << p[1] << ", " << p[2] << ")\n";
+            std::cout << "DEBUG: Line–Parabola intersection count = " << result.points.size() << std::endl;
+            for (size_t i = 0; i < result.points.size(); ++i) {
+                const auto& p = result.points[i];
+                std::cout << "  Point[" << i << "] = (" << p[0] << ", " << p[1] << ", " << p[2] << ")\n";
+            }
+        }
+    }
+
+    // Additional identical-geometry test for parabola vs line
+    std::cout << "[Parabola Intersection Tests]\n";
+    {
+        auto parabola = [](double t) {
+            return Point<double,2>({t, t*t});
+        };
+        Curve<double,2> curve(parabola, -1.0, 1.0);
+
+        // Line crossing parabola (through y=0): from (-1,0) to (1,0)
+        Line<double,2> line(Point<double,2>({-1.0, 0.0}), Point<double,2>({1.0, 0.0}));
+        auto r = intersect(line, curve);
+        printTest("Line crosses parabola (expect 2)", r.intersects && r.points.size() == 2);
+        if (r.intersects) {
+            for (const auto& p : r.points) {
+                std::cout << "Intersection at: (" << p[0] << ", " << p[1] << ")\n";
+            }
         }
     }
 
@@ -1455,7 +1476,7 @@ inline void testLineIntersection() {
     using namespace Euclid;
     using std::cout;
     cout << "\nLine Intersection Tests\n" << std::endl;
-    
+
     testLineLineIntersection();
     testLineLineParallelThreshold();
     testLineSegmentIntersection();
@@ -1472,6 +1493,7 @@ inline void testLineIntersection() {
     testLineSphereScaleResolution();
     testLineSaddleScaleResolution();
     testLineSurfaceFrequencyScaling();
+    
 }
 
 } // namespace Tests

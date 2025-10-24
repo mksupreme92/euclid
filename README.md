@@ -50,10 +50,10 @@
 - [x] `Segment - Curve` → returns points of intersection
 - [x] `Segment - Plane` → returns point or segment
 - [x] `Segment - Face` → returns point or segment
-- [ ] `Segment - Surface` → returns point(s) of intersection
+- [x] `Segment - Surface` → returns point(s) of intersection
 
 #### Curve Intersections
-- [ ] **`Curve - Curve` → returns points or overlapping segments**
+- [ ] **`Curve - Curve` → returns points or overlapping curve**
 - [ ] `Curve - Plane`
 - [ ] `Curve - Face`
 - [ ] **`Curve - Surface` → returns curve(s) of intersection**
