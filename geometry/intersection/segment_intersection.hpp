@@ -3,11 +3,39 @@
 #include "../geometry.hpp"
 #include "intersection_result.hpp"
 #include "geometry/tolerance.hpp"
+#include "line_intersection.hpp"
 
 #include <vector>
 #include <Eigen/Core>
 
 namespace Euclid::Geometry {
+
+
+// Utility: project a point onto a segment and decide if it lies (within tolerance) in [0,1]
+template <typename T, int N>
+static inline bool point_on_segment_domain(const Eigen::Matrix<T, N, 1>& pt,
+                                           const Segment<T, N>& seg,
+                                           const Tolerance& tol) {
+    using Vector = Eigen::Matrix<T, N, 1>;
+    const Vector p0 = seg.start.coords;
+    const Vector dir = seg.end.coords - seg.start.coords;
+    const T seg_len = dir.norm();
+    if (seg_len < tol.evaluateEpsilon(seg_len)) return false; // degenerate
+    const T t = dir.dot(pt - p0) / dir.squaredNorm();
+    return (t >= -tol.evaluateEpsilon(seg_len)) && (t <= T(1) + tol.evaluateEpsilon(seg_len));
+}
+
+// Utility: push a point into a vector if not a duplicate (w.r.t. tolerance)
+template <typename T, int N>
+static inline void push_unique_point(std::vector<Point<T, N>>& out,
+                                     const Point<T, N>& pt,
+                                     T seg_len,
+                                     const Tolerance& tol) {
+    for (const auto& ex : out) {
+        if ((ex.coords - pt.coords).norm() < tol.evaluateEpsilon(seg_len)) return;
+    }
+    out.push_back(pt);
+}
 
 // Helper function for 2D cross product (scalar)
 template <typename T>
@@ -155,124 +183,39 @@ PointIntersectionResult<T, N> intersect(const Segment<T, N>& seg1, const Segment
     }
 }
 
-// Segment-Curve intersection using sampling and Newton refinement
+// Segment-Curve intersection using line–curve logic and segment-domain filter
 template <typename T, int N>
 PointIntersectionResult<T, N> intersect(const Segment<T, N>& seg, const Curve<T, N>& curve,
                              const Tolerance& tol = Tolerance()) {
     using Vector = Eigen::Matrix<T, N, 1>;
-    constexpr int NUM_SAMPLES = 200; // increase sampling for robustness in higher dimensions
     std::vector<Point<T, N>> intersection_points;
 
-    // Parametric representation of the segment: S(t) = seg.start.coords + t * (seg.end.coords - seg.start.coords), t in [0,1]
-    Vector p0 = seg.start.coords;
-    Vector p1 = seg.end.coords;
-    Vector dir = p1 - p0;
-    T seg_length = dir.norm();
+    const Vector p0 = seg.start.coords;
+    const Vector dir = seg.end.coords - seg.start.coords;
+    const T seg_length = dir.norm();
     if (seg_length < tol.evaluateEpsilon(seg_length)) {
         return PointIntersectionResult<T, N>(false, "Degenerate segment", {});
     }
 
-    // Curve domain
-    auto curve_domain = curve.domain();
-    T t_min = curve_domain.first;
-    T t_max = curve_domain.second;
-    if (t_max <= t_min) t_max = t_min + T(1);
+    // Delegate to the line–curve intersection using unit direction
+    const Vector dir_unit = (seg_length > T(0)) ? (dir / seg_length) : dir;
+    auto line_result = intersect(Line<T, N>(seg.start, dir_unit), curve, tol);
+    if (!line_result.intersects) {
+        return PointIntersectionResult<T, N>(false, "No intersection", {});
+    }
 
-    // Sampling step
-    T curve_param_step = (t_max - t_min) / static_cast<T>(NUM_SAMPLES);
-
-    auto is_duplicate = [&](const Vector &pt)->bool{
-        for (const auto &existing : intersection_points) {
-            if ((existing.coords - pt).norm() < tol.evaluateEpsilon(seg_length)) return true;
-        }
-        return false;
-    };
-
-    for (int i = 0; i <= NUM_SAMPLES; ++i) {
-        T t_curve = t_min + static_cast<T>(i) * curve_param_step;
-        Vector curve_pt = curve.evaluate(t_curve).coords;
-
-        // Project curve_pt onto the infinite line of the segment
-        Vector v = curve_pt - p0;
-        T t_seg = dir.dot(v) / (dir.squaredNorm());
-
-        // Only consider points whose projection falls (approximately) within the segment bounds
-        if (t_seg >= -tol.evaluateEpsilon(seg_length) && t_seg <= T(1) + tol.evaluateEpsilon(seg_length)) {
-            Vector seg_pt = p0 + t_seg * dir;
-            T dist = (curve_pt - seg_pt).norm();
-            if (dist < tol.evaluateEpsilon(seg_length) * (T)1.0) {
-                // Attempt local refinement on curve parameter to reduce distance to the segment
-                T t_c = t_curve;
-                constexpr int MAX_NEWTON_ITER = 16;
-
-                for (int iter = 0; iter < MAX_NEWTON_ITER; ++iter) {
-                    Vector cpt = curve.evaluate(t_c).coords;
-                    Vector cder = curve.evaluateDerivative(t_c, tol); // use tolerance-aware derivative
-
-                    // projection onto the segment
-                    Vector v2 = cpt - p0;
-                    T t_s = dir.dot(v2) / dir.squaredNorm();
-                    t_s = std::clamp(t_s, T(0), T(1));
-                    Vector spt = p0 + t_s * dir;
-                    Vector diff = cpt - spt;
-                    T dist2 = diff.norm();
-
-                    if (dist2 < tol.evaluateEpsilon(seg_length)) {
-                        break;
-                    }
-
-                    // Solve 2x2 normal equations for simultaneous update of (t_c, t_s):
-                    // J = [c'(t)  -dir]
-                    // (J^T J) * [dt; ds] = - J^T * f  where f = c(t) - s(t_s)
-                    T a00 = cder.dot(cder);
-                    T a01 = -cder.dot(dir);
-                    T a11 = dir.dot(dir);
-
-                    T b0 = -cder.dot(diff);
-                    T b1 = dir.dot(diff);
-
-                    T det = a00 * a11 - a01 * a01;
-                    if (std::abs(det) < tol.evaluateEpsilon(seg_length)) {
-                        // ill-conditioned; bail out
-                        break;
-                    }
-
-                    T dt = (b0 * a11 - a01 * b1) / det;
-                    T ds = (a00 * b1 - b0 * a01) / det;
-
-                    // safeguard step sizes
-                    T max_dt = (t_max - t_min) * (T)0.5;
-                    if (std::abs(dt) > max_dt) dt = std::copysign(max_dt, dt);
-                    if (std::abs(ds) > (T)0.5) ds = std::copysign((T)0.5, ds);
-
-                    t_c += dt;
-                    t_s += ds;
-
-                    if (t_c < t_min) t_c = t_min;
-                    if (t_c > t_max) t_c = t_max;
-                    // keep t_s within segment bounds but allow a bit of overshoot for convergence
-                    if (t_s < -tol.evaluateEpsilon(seg_length)) t_s = -tol.evaluateEpsilon(seg_length);
-                    if (t_s > T(1) + tol.evaluateEpsilon(seg_length)) t_s = T(1) + tol.evaluateEpsilon(seg_length);
-
-                    // recompute spt and diff for next iteration (loop does at top)
-                }
-
-                Vector final_pt = curve.evaluate(t_c).coords;
-                // Final projection and distance check
-                Vector vfinal = final_pt - p0;
-                T final_tseg = dir.dot(vfinal) / dir.squaredNorm();
-                if (final_tseg >= -tol.evaluateEpsilon(seg_length) && final_tseg <= T(1) + tol.evaluateEpsilon(seg_length)) {
-                    Vector final_spt = p0 + std::clamp(final_tseg, T(0), T(1)) * dir;
-                    T final_dist = (final_pt - final_spt).norm();
-                    if (final_dist < tol.evaluateEpsilon(seg_length)) {
-                        if (!is_duplicate(final_pt)) {
-                            intersection_points.push_back(Point<T, N>{final_pt});
-                        }
-                    }
-                }
+    // Filter line intersections to the segment domain
+    for (const auto& pt : line_result.points) {
+        if (point_on_segment_domain<T, N>(pt.coords, seg, tol)) {
+            // additionally clamp to the segment and verify distance (paranoia)
+            const T t = dir.dot(pt.coords - p0) / dir.squaredNorm();
+            const Vector segpt = p0 + std::clamp(t, T(0), T(1)) * dir;
+            if ((pt.coords - segpt).norm() < tol.evaluateEpsilon(seg_length)) {
+                push_unique_point<T, N>(intersection_points, pt, seg_length, tol);
             }
         }
     }
+
 
     if (!intersection_points.empty()) {
         return PointIntersectionResult<T, N>(true, "Segment and curve intersect", std::move(intersection_points));
@@ -285,6 +228,7 @@ PointIntersectionResult<T, N> intersect(const Segment<T, N>& seg, const Curve<T,
 template <typename T, int N>
 PointIntersectionResult<T, N> intersect(const Segment<T, N>& seg, const Plane<T, N>& plane,
                              const Tolerance& tol = Tolerance()) {
+    // NOTE: Could be simplified by delegating to Line–Plane and filtering to [0,1], kept explicit for clarity and identical behavior to prior tests.
     using Vector = typename Plane<T, N>::VectorType;
     const Vector& p0 = seg.start.coords;
     const Vector& p1 = seg.end.coords;
@@ -375,81 +319,66 @@ PointIntersectionResult<T, N> intersect(const Segment<T, N>& seg, const Surface<
                              const Tolerance& tol = Tolerance()) {
     using Vector = Eigen::Matrix<T, N, 1>;
     std::vector<Point<T, N>> intersection_points;
-    Vector p0 = seg.start.coords;
-    Vector p1 = seg.end.coords;
-    Vector dir = p1 - p0;
-    T seg_length = dir.norm();
-    if (seg_length < tol.evaluateEpsilon(seg_length)) {
-        // Degenerate segment
+
+    // Reuse Line–Surface intersection and clip hits to the segment domain [0,1]
+    const Vector p0 = seg.start.coords;
+    const Vector dir = seg.end.coords - seg.start.coords;
+    const T seg_len = dir.norm();
+
+    if (seg_len < tol.evaluateEpsilon(seg_len)) {
         return PointIntersectionResult<T, N>(false, "Degenerate segment", {});
     }
 
-    // Fast path for 3D: use Surface's specialized line intersection if available
-    if constexpr (N == 3) {
-        auto line_result = intersect(Line<T, 3>(seg.start, seg.end), surface, tol);
-        if (!line_result.intersects) {
-            // No intersection with infinite line, so none with segment
-            return PointIntersectionResult<T, N>(false, "No intersection", {});
-        }
-        // For each intersection point, check if it lies on the segment
+    /*
+    // [DEBUG] print direction info
+    std::cout << "[DEBUG] Using line direction = (" << dir.transpose() << "), norm = " << dir.norm() << std::endl;
+     */
+    const Vector dir_unit = dir / seg_len;
+    auto line_result = ::Euclid::Geometry::intersect(Line<T, N>(seg.start, dir_unit), surface, tol);
+
+    /*
+    // [DEBUG] print line_result
+    std::cout << "[DEBUG] Segment–Surface: line_result.intersects=" << line_result.intersects
+              << ", point count=" << line_result.points.size() << std::endl;
+     */
+
+    if (line_result.intersects) {
         for (const auto& pt : line_result.points) {
-            Vector v = pt.coords - p0;
-            T t = dir.dot(v) / dir.squaredNorm();
-            if (t >= -tol.evaluateEpsilon(seg_length) && t <= T(1) + tol.evaluateEpsilon(seg_length)) {
-                // Clamp to segment and check actual distance
-                Vector segpt = p0 + std::clamp(t, T(0), T(1)) * dir;
-                if ((pt.coords - segpt).norm() < tol.evaluateEpsilon(seg_length)) {
-                    // Avoid duplicates
-                    bool dup = false;
-                    for (const auto& ex : intersection_points) {
-                        if ((ex.coords - pt.coords).norm() < tol.evaluateEpsilon(seg_length)) { dup = true; break; }
-                    }
-                    if (!dup) intersection_points.push_back(pt);
-                }
-            }
-        }
-    } else {
-        // ND: use line-surface intersection and bound to segment
-        auto line_result = intersect(Line<T, N>(seg.start, seg.end), surface, tol);
-        if (!line_result.intersects) {
-            return PointIntersectionResult<T, N>(false, "No intersection", {});
-        }
-        for (const auto& pt : line_result.points) {
-            Vector v = pt.coords - p0;
-            T t = dir.dot(v) / dir.squaredNorm();
-            if (t >= -tol.evaluateEpsilon(seg_length) && t <= T(1) + tol.evaluateEpsilon(seg_length)) {
-                Vector segpt = p0 + std::clamp(t, T(0), T(1)) * dir;
-                if ((pt.coords - segpt).norm() < tol.evaluateEpsilon(seg_length)) {
-                    bool dup = false;
-                    for (const auto& ex : intersection_points) {
-                        if ((ex.coords - pt.coords).norm() < tol.evaluateEpsilon(seg_length)) { dup = true; break; }
-                    }
-                    if (!dup) intersection_points.push_back(pt);
+            // [DEBUG] print candidate point
+            //std::cout << "[DEBUG] Candidate point: (" << pt.coords.transpose() << ")" << std::endl;
+            // Project to segment parameter t in [0,1] using normalized direction
+            const T t = dir_unit.dot(pt.coords - p0) / seg_len;
+            // [DEBUG] print computed t
+            //std::cout << "[DEBUG] Computed t=" << t << ", seg_len=" << seg_len << std::endl;
+            if (t >= -tol.evaluateEpsilon(seg_len) && t <= T(1) + tol.evaluateEpsilon(seg_len)) {
+                // Clamp and verify proximity to the clamped point (paranoia check)
+                const Vector seg_pt = p0 + std::clamp(t, T(0), T(1)) * dir;
+                if ((pt.coords - seg_pt).norm() <= tol.evaluateEpsilon(seg_len) * T(10)) {
+                    // [DEBUG] print accepted point
+                    //std::cout << "[DEBUG] Accepted point: (" << pt.coords.transpose() << ")" << std::endl;
+                    push_unique_point<T, N>(intersection_points, pt, seg_len, tol);
                 }
             }
         }
     }
-    // Optionally also check endpoints for intersection, e.g. if endpoints lie on the surface
+
+    // [DEBUG] after line–surface pass
+    //std::cout << "[DEBUG] Line–Surface pass complete, accepted count=" << intersection_points.size() << std::endl;
+
+    // Include segment endpoints that lie on the surface (handles grazing/endpoint cases)
     auto r0 = intersect(seg.start, surface, tol);
-    auto r1 = intersect(seg.end, surface, tol);
     if (r0.intersects) {
         for (const auto& pt : r0.points) {
-            bool dup = false;
-            for (const auto& ex : intersection_points) {
-                if ((ex.coords - pt.coords).norm() < tol.evaluateEpsilon(seg_length)) { dup = true; break; }
-            }
-            if (!dup) intersection_points.push_back(pt);
+            push_unique_point<T, N>(intersection_points, pt, seg_len, tol);
         }
     }
+    auto r1 = intersect(seg.end, surface, tol);
     if (r1.intersects) {
         for (const auto& pt : r1.points) {
-            bool dup = false;
-            for (const auto& ex : intersection_points) {
-                if ((ex.coords - pt.coords).norm() < tol.evaluateEpsilon(seg_length)) { dup = true; break; }
-            }
-            if (!dup) intersection_points.push_back(pt);
+            push_unique_point<T, N>(intersection_points, pt, seg_len, tol);
         }
     }
+
     if (!intersection_points.empty()) {
         return PointIntersectionResult<T, N>(true, "Segment intersects surface", std::move(intersection_points));
     }

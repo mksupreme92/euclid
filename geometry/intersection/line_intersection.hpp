@@ -410,6 +410,39 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Curve<T, N>
         }
     }
 
+    // --- NEW: collapse overlapping/nearby brackets by midpoint in u ---
+    if (!brackets.empty()) {
+        // Compute an estimate of the sampling step for clustering
+        const T sample_step_u = (u1 - u0) / std::max<T>(T(1), static_cast<T>(samplePoints.size()));
+        const T u_cluster_from_brackets = std::max(T(8) * tol.paramTol, T(2.5) * sample_step_u);
+
+        // Sort by midpoint and keep only the first in each cluster
+        struct MidB { T mid; T a; T b; };
+        std::vector<MidB> mids; mids.reserve(brackets.size());
+        for (const auto& br : brackets) {
+            T mid = (br.a + br.b) * T(0.5);
+            mids.push_back({mid, br.a, br.b});
+        }
+        std::sort(mids.begin(), mids.end(), [](const MidB& x, const MidB& y){ return x.mid < y.mid; });
+
+        std::vector<Bracket> collapsed; collapsed.reserve(mids.size());
+        for (const auto& mb : mids) {
+            if (collapsed.empty()) {
+                collapsed.push_back({mb.a, mb.b});
+            } else {
+                T prev_mid = (collapsed.back().a + collapsed.back().b) * T(0.5);
+                if (std::abs(mb.mid - prev_mid) > u_cluster_from_brackets) {
+                    collapsed.push_back({mb.a, mb.b});
+                } else {
+                    // Merge by enlarging the latest bracket for better Newton seeding stability
+                    collapsed.back().a = std::min(collapsed.back().a, mb.a);
+                    collapsed.back().b = std::max(collapsed.back().b, mb.b);
+                }
+            }
+        }
+        brackets.swap(collapsed);
+    }
+
     if (brackets.empty()) {
         // fallback to midpoint if nothing found
         brackets.push_back({(u0 + u1) * 0.5, (u0 + u1) * 0.5});
@@ -500,8 +533,9 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Curve<T, N>
             // Dedup by param and by world distance
             Point<T,N> Pfin((Cfin + Lfin) * T(0.5));
             bool duplicate = false;
-            T dedup_param = tol.paramTol * T(2);
-            T dedup_world = tol.evaluateEpsilon(scale_fin) * T(3);
+            // Use tolerance-model–based scaling for deduplication
+            T dedup_param = tol.paramTol * std::max<T>(T(2), std::cbrt(scale_fin));
+            T dedup_world = tol.evaluateEpsilon(scale_fin) * std::max<T>(T(2), std::cbrt(scale_fin));
             for (size_t i = 0; i < hits.size(); ++i) {
                 if (std::abs(hits[i].u_curve - u) <= dedup_param) { duplicate = true; break; }
                 if ((pts[i].coords - Pfin.coords).norm() <= dedup_world) { duplicate = true; break; }
@@ -517,11 +551,60 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Curve<T, N>
                 ParamHit<T,N> hit; hit.t_line = t; hit.u_curve = u; hit.v_surface = T(0); hit.p = Pfin; hit.tangential = isTangential;
                 // Fill both the new hits vector and legacy points for compatibility
                 result.addHit(hit);           // fills base points
-                result.points.push_back(Pfin); // fill derived points (kept in this struct)
                 hits.push_back(hit);
                 pts.push_back(Pfin);
             }
         }
+    }
+
+    // ======================================================
+    // Unified deduplication on hits (param-space + world-space)
+    //   Rationale:
+    //   - Many near-tangent configurations (e.g., line y=0 and parabola y=x^2)
+    //     produce clusters of Newton solutions around the true root (u≈0).
+    //   - Dedup must operate on "hits" (which carry u parameters), not only on
+    //     result.points, otherwise later syncing would reintroduce duplicates.
+    // ======================================================
+    if (!hits.empty()) {
+        // Estimate average sampling step to scale param clustering
+        T sample_step_u = (u1 - u0) / std::max<T>(T(1), static_cast<T>(samplePoints.size()));
+
+        // Param-space and world-space clustering thresholds (more conservative)
+        const T u_cluster_tol = std::max(T(8) * tol.paramTol, sample_step_u * T(3.0));
+        const T world_cluster_tol = std::max(
+            tol.absTol * T(100),
+            tol.evaluateEpsilon(std::max<T>({T(1), dir.norm(), P0.norm()})) * T(75)
+        );
+
+        std::vector<ParamHit<T,N>> filtered_hits;
+        filtered_hits.reserve(hits.size());
+
+        for (const auto& h : hits) {
+            bool dup = false;
+            for (auto& f : filtered_hits) {
+                const T du = std::abs(h.u_curve - f.u_curve);
+                const T dw = (h.p.coords - f.p.coords).norm();
+                if (du <= u_cluster_tol || dw <= world_cluster_tol) {
+                    // Prefer the representative closer to the line (smaller residual along Newton)
+                    if ((h.p.coords - (P0 + h.t_line * dir)).norm() <=
+                        (f.p.coords - (P0 + f.t_line * dir)).norm()) {
+                        f = h; // replace with better representative
+                    }
+                    dup = true;
+                    break;
+                }
+            }
+            if (!dup) filtered_hits.push_back(h);
+        }
+
+        hits.swap(filtered_hits);
+    }
+
+    // Sync deduped hits back to result.points
+    if (!hits.empty()) {
+        result.points.clear();
+        for (const auto& h : hits)
+            result.points.push_back(h.p);
     }
 
     if (!hits.empty()) {
@@ -720,6 +803,15 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, 
                                       const Tolerance& tol = Tolerance(), int max_grid = -1) {
     LineIntersectionResult<T, N> result;
 
+    /*
+    // [DEBUG] Entry parameters
+    std::cout << "[DEBUG][Line–Surface] ENTER "
+              << "origin=" << line.point1().coords.transpose()
+              << " dir=" << line.direction().transpose()
+              << " |dir|=" << line.direction().norm()
+              << std::endl;
+     */
+
     // Get some scale for tolerance
     const auto& P0 = line.point1().coords;
     const auto dir = line.direction();
@@ -734,6 +826,11 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, 
     T u_extent = std::abs(u1 - u0);
     T v_extent = std::abs(v1 - v0);
 
+    /*
+    std::cout << "[DEBUG][Line–Surface] domain u:[" << u0 << "," << u1 << "] v:[" << v0 << "," << v1 << "]"
+              << " u_extent=" << u_extent << " v_extent=" << v_extent << std::endl;
+     */
+
     // Estimate world bounding box to derive t-range
     std::array<std::pair<T,T>,5> uvProbe = {{{u0,v0},{u1,v0},{u0,v1},{u1,v1},{(u0+u1)/2,(v0+v1)/2}}};
     Eigen::Matrix<T,N,1> gmin = s.evaluate(uvProbe[0].first, uvProbe[0].second).coords;
@@ -743,6 +840,8 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, 
         gmin = gmin.cwiseMin(p); gmax = gmax.cwiseMax(p);
     }
     T diag = (gmax - gmin).norm();
+
+    //std::cout << "[DEBUG][Line–Surface] bbox diag=" << diag << std::endl;
 
     // Set up min step sizes based on tolerance model
     T min_step_u = tol.paramTol;
@@ -774,11 +873,19 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, 
     };
 
     seedCandidates(grid);
+    /*
+    std::cout << "[DEBUG][Line–Surface] seeded candidates (coarse)=" << candidates.size()
+              << " grid=" << grid << std::endl;
+     */
 
     // If we appear under-seeded for highly oscillatory geometry, add a second, denser pass.
     if ((int)candidates.size() < grid/2 || curvature_factor > T(8)) {
         int grid_refined = std::min(grid * 2, 256);
         seedCandidates(grid_refined);
+        /*
+        std::cout << "[DEBUG][Line–Surface] seeded candidates (refined)=" << candidates.size()
+                  << " grid_refined=" << grid_refined << std::endl;
+         */
     }
 
     // Ensure candidates are processed in a stable order by (u,v)
@@ -836,6 +943,8 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, 
     const T vh = std::max(min_step_v * T(0.0625), std::numeric_limits<T>::epsilon() * 10);
 
     std::vector<Point<T,N>> intersections;
+
+    //std::cout << "[DEBUG][Line–Surface] processing candidates count=" << candidates.size() << std::endl;
 
     for(const auto& cand : candidates){
         T u = cand.u, v = cand.v, t = cand.t;
@@ -909,16 +1018,27 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Surface<T, 
                 // Record detailed hit for downstream consumers (tests may ignore)
                 ParamHit<T,N> hit; hit.t_line = t; hit.u_curve = u; hit.v_surface = v; hit.p = mid; hit.tangential = false;
                 result.addHit(hit);
+                /*
+                std::cout << "[DEBUG][Line–Surface] accepted hit u=" << u << " v=" << v << " t=" << t
+                          << " |mid|=" << mid.coords.norm() << std::endl;
+                 */
             }
         }
     }
+
+    //std::cout << "[DEBUG][Line–Surface] total accepted=" << intersections.size() << std::endl;
 
     if (!intersections.empty()) {
         result.intersects = true;
         result.points = intersections;
         result.description = "Line intersects surface (bounded grid Newton)";
+        /*
+        std::cout << "[DEBUG][Line–Surface] EXIT intersects=1 points=" << result.points.size()
+                  << " desc=" << result.description << std::endl;
+         */
     } else {
         result.description = "Line does not intersect surface (bounded grid Newton)";
+        //std::cout << "[DEBUG][Line–Surface] EXIT intersects=0 points=0 desc=" << result.description << std::endl;
     }
     return result;
 }
