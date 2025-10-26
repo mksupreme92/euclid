@@ -16,9 +16,9 @@
 inline void testGeometry() {
     std::cout << "\n📐 Testing Geometry Logic\n";
     //testPoint();
-    testLine();
-    testSegment();
-    //testCurve();
+    //testLine();
+    //testSegment();
+    testCurve();
     //testPlane();
     //testFace();
     //testSurface();
