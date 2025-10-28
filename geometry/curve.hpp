@@ -382,120 +382,65 @@ public:
         return {derivative, confidence};
     }
 
-    // Estimate integral of curvature magnitude across the domain using adaptive Gauss–Kronrod 15-point rule
-    Scalar evaluateCurvature(const Tolerance& tol, int maxDepth = 10) const {
-        Scalar t0 = domain_.first;
-        Scalar t1 = domain_.second;
-        // Curvature magnitude function
-        auto curvatureAt = [&](Scalar t) {
-            const Scalar h = tol.evaluateEpsilon(curveFunc_(t).coords.norm());
-            auto p0 = curveFunc_(t).coords;
-            auto p1 = curveFunc_(std::min(t1, t + h)).coords;
-            auto p_1 = curveFunc_(std::max(t0, t - h)).coords;
-            auto first = (p1 - p_1) / (2 * h);
-            auto second = (p1 - 2 * p0 + p_1) / (h * h);
-            // Use the same denominator as before, but clamp for stability
-            Scalar denom = std::pow(Scalar(1.0) + first.squaredNorm(), Scalar(1.5));
-            if (!(std::isfinite(denom) && denom > Scalar(0))) denom = Scalar(1);
-            Scalar result = second.norm() / denom;
-            if (!std::isfinite(result)) result = Scalar(0);
-            return result;
+    // Compute local curvature at parameter t:
+    // κ(t) = ||a_perp|| / ||v||^2, where a_perp = a - ((a·v)/||v||^2) v
+    Scalar evaluateCurvature(Scalar t) const {
+        using VecD = Eigen::Matrix<double, Dim, 1>;
+        Tolerance tol;
+        const Scalar t0 = domain_.first;
+        const Scalar t1 = domain_.second;
+        // Clamp t to domain
+        Scalar tc = t;
+        if (tc < t0) tc = t0;
+        if (tc > t1) tc = t1;
+
+        // --- Use same adaptive step logic as in evaluateDerivative() ---
+        const Scalar epsMach = std::numeric_limits<Scalar>::epsilon();
+        const Scalar span    = std::max(Scalar(1e-12), t1 - t0);
+        auto safeClampToDomain = [&](Scalar tval) -> Scalar {
+            if (tval <= t0) return t0;
+            if (tval >= t1) return t1;
+            return tval;
         };
-
-        // Gauss–Kronrod 15-point nodes (abscissae) and weights (on [-1,1])
-        static constexpr double GK15_x[8] = {
-            0.0000000000000000,
-            0.2077849550078985,
-            0.4058451513773972,
-            0.5860872354676911,
-            0.7415311855993945,
-            0.8648644233597691,
-            0.9491079123427585,
-            0.9914553711208126
+        auto choose_h = [&](Scalar tval) -> Scalar {
+            VecD pd = curveFunc_(tval).coords.template cast<double>();
+            const double geomScale = pd.norm();
+            const double base = std::max(1.0, geomScale + pd.cwiseAbs().sum());
+            const Scalar hTol = tol.evaluateEpsilon(static_cast<Scalar>(base));
+            const Scalar hUlp = std::max(epsMach * (Scalar(1) + std::abs(tval)), epsMach);
+            const Scalar hDom = std::max(span * Scalar(1e-6), epsMach);
+            const Scalar hCbrt = Scalar(std::cbrt(static_cast<double>(epsMach))) * std::max(span, Scalar(1));
+            Scalar h0 = std::max(std::max(hTol, hUlp), std::max(hDom, hCbrt));
+            const Scalar hMax = std::max(span * Scalar(1e-2), epsMach);
+            h0 = std::min(h0, hMax);
+            h0 = std::max(h0, hUlp * Scalar(8));
+            const Scalar toLeft  = tval - t0;
+            const Scalar toRight = t1 - tval;
+            const Scalar hBound  = std::max(std::min(toLeft, toRight), epsMach);
+            return std::min(h0, hBound);
         };
-        static constexpr double GK15_w[8] = {
-            0.2094821410847278,
-            0.2044329400752989,
-            0.1903505780647854,
-            0.1690047266392679,
-            0.1406532597155259,
-            0.1047900103222502,
-            0.0630920926299786,
-            0.0229353220105292
-        };
-        static constexpr double G7_x[4] = {
-            0.0000000000000000,
-            0.4058451513773972,
-            0.7415311855993945,
-            0.9491079123427585
-        };
-        static constexpr double G7_w[4] = {
-            0.4179591836734694,
-            0.3818300505051189,
-            0.2797053914892766,
-            0.1294849661688697
-        };
-
-        // Adaptive recursive Gauss–Kronrod quadrature on [a,b]
-        std::function<Scalar(Scalar, Scalar, int)> integrateGK;
-        integrateGK = [&](Scalar a, Scalar b, int depth) -> Scalar {
-            const Scalar mid  = (a + b) * Scalar(0.5);
-            const Scalar half = (b - a) * Scalar(0.5);
-            const Scalar width = std::abs(b - a);
-
-            // Pre-sample endpoints and midpoint for an oscillation proxy
-            const Scalar fa = curvatureAt(a);
-            const Scalar fm = curvatureAt(mid);
-            const Scalar fb = curvatureAt(b);
-
-            // --- Gauss–Kronrod 15-point integral for curvature magnitude ---
-            Scalar I15 = 0;
-            {
-                I15 += Scalar(GK15_w[0]) * fm; // center once
-                for (int i = 1; i < 8; ++i) {
-                    const Scalar xi = Scalar(GK15_x[i]);
-                    const Scalar fp = curvatureAt(mid + half * xi);
-                    const Scalar fn = curvatureAt(mid - half * xi);
-                    I15 += Scalar(GK15_w[i]) * (fp + fn);
-                }
-                I15 *= half;
-            }
-
-            // --- Embedded 7-point Gauss subset ---
-            Scalar I7 = 0;
-            {
-                I7 += Scalar(G7_w[0]) * fm; // center once
-                for (int i = 1; i < 4; ++i) {
-                    const Scalar xi = Scalar(G7_x[i]);
-                    const Scalar fp = curvatureAt(mid + half * xi);
-                    const Scalar fn = curvatureAt(mid - half * xi);
-                    I7 += Scalar(G7_w[i]) * (fp + fn);
-                }
-                I7 *= half;
-            }
-
-            // Error and tolerance for this interval
-            const Scalar err     = std::abs(I15 - I7);
-            const Scalar tolHere = tol.paramTol * width;
-
-            // Oscillation proxy normalized by interval width
-            const Scalar osc = std::abs(fa - Scalar(2) * fm + fb) / std::max(width, Scalar(1e-9));
-
-            // Decide whether to split: only if error large OR significant normalized oscillation
-            const bool needSplit = (err >= tolHere) || (osc > Scalar(50) * tol.paramTol);
-
-            // Hard stops: recursion depth and minimal width relative to total span
-            if (!needSplit || depth >= maxDepth || width < (t1 - t0) * Scalar(1e-6)) {
-                return I15;
-            }
-
-            const Scalar left  = integrateGK(a,  mid, depth + 1);
-            const Scalar right = integrateGK(mid, b,  depth + 1);
-            return left + right;
-        };
-        // Clamp domain for numerical safety
-        if (!(t0 < t1)) return Scalar(0);
-        return integrateGK(t0, t1, 0);
+        // --- Compute both velocity and acceleration using a single finite-difference block ---
+        Scalar h = choose_h(tc);
+        Scalar tp = safeClampToDomain(tc + h);
+        Scalar tm = safeClampToDomain(tc - h);
+        double denom = std::max(static_cast<double>(tp - tm), static_cast<double>(epsMach));
+        double h2 = std::max(static_cast<double>(h) * static_cast<double>(h), static_cast<double>(epsMach));
+        VecD fp = curveFunc_(tp).coords.template cast<double>();
+        VecD fm = curveFunc_(tm).coords.template cast<double>();
+        VecD f0 = curveFunc_(tc).coords.template cast<double>();
+        VecD v = (fp - fm) / denom;
+        if (!v.allFinite()) return Scalar(0);
+        double vnorm = v.norm();
+        if (!(vnorm > 0.0)) return Scalar(0);
+        VecD a = (fp - 2.0 * f0 + fm) / h2;
+        if (!a.allFinite()) return Scalar(0);
+        double v2 = std::max(vnorm * vnorm, static_cast<double>(epsMach));
+        double proj = (a.dot(v)) / v2;
+        VecD a_perp = a - proj * v;
+        double numer = a_perp.norm();
+        if (!std::isfinite(numer)) return Scalar(0);
+        double kappa = numer / v2;
+        return static_cast<Scalar>(kappa);
     }
 
 

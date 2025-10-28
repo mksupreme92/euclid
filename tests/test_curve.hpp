@@ -397,6 +397,122 @@ inline void testCurveIntegral() {
     printTest("Torus knot curve integral (arc length)", diffTorus <= 5.0f * tolTorus);
 }
 
+// Test evaluateCurvature() for representative curves
+inline void testCurveCurvature() {
+    std::cout << "\n∿ Testing Curve Local Curvature (Adaptive Tolerance)\n";
+
+    Euclid::Tolerance tol;
+    using Point2 = Euclid::Geometry::Point<float, 2>;
+    using Curve2 = Euclid::Geometry::Curve<float, 2>;
+    using Point3 = Euclid::Geometry::Point<float, 3>;
+    using Curve3 = Euclid::Geometry::Curve<float, 3>;
+
+    // --- Linear Curve: (t, t), t in [0,1] ---
+    Curve2 linear = Curve2::linearCurve(Point2{0.0f, 0.0f}, Point2{1.0f, 1.0f});
+    float tLin = 0.5f;
+    float expectedLin = 0.0f;
+    float computedLin = linear.evaluateCurvature(tLin);
+    float tolLin = tol.evaluateEpsilon(1.0f) * 10.0f;
+    float scaledTolLin = tolLin * 100.0f;
+    float diffLin = std::abs(computedLin - expectedLin);
+    std::cout << "[DEBUG] Linear: expected=" << expectedLin
+              << ", computed=" << computedLin
+              << ", diff=" << diffLin
+              << ", tol=" << std::scientific << std::setprecision(6) << tolLin
+              << ", scaledTol=" << std::scientific << std::setprecision(6) << scaledTolLin
+              << std::defaultfloat << std::endl;
+    printTest("Linear curve curvature", diffLin <= scaledTolLin);
+
+    // --- Circular Curve: unit circle x=cos(2πt), y=sin(2πt), t in [0,1] ---
+    float tCirc = 0.25f;
+    auto circularFunc = [](float t) -> Point2 {
+        return Point2{std::cos(2.0f * float(M_PI) * t), std::sin(2.0f * float(M_PI) * t)};
+    };
+    Curve2 circular(circularFunc, 0.0f, 1.0f);
+    // For a unit circle parametrized by t in [0,1], the curvature is always 1
+    float expectedCirc = 1.0f;
+    float computedCirc = circular.evaluateCurvature(tCirc);
+    float tolCirc = tol.evaluateEpsilon(expectedCirc) * 10.0f;
+    float scaledTolCirc = tolCirc * 100.0f;
+    float diffCirc = std::abs(computedCirc - expectedCirc);
+    std::cout << "[DEBUG] Circular: expected=" << expectedCirc
+              << ", computed=" << computedCirc
+              << ", diff=" << diffCirc
+              << ", tol=" << std::scientific << std::setprecision(6) << tolCirc
+              << ", scaledTol=" << std::scientific << std::setprecision(6) << scaledTolCirc
+              << std::defaultfloat << std::endl;
+    printTest("Circular curve curvature", diffCirc <= scaledTolCirc);
+
+    // --- Quadratic Curve: (t, t^2), t in [0,1] ---
+    float tQuad = 0.5f;
+    auto quadraticFunc = [](float t) -> Point2 { return Point2{t, t * t}; };
+    Curve2 quadratic(quadraticFunc, 0.0f, 1.0f);
+    // Analytical curvature: kappa = |x'y'' - y'x''| / (x'^2 + y'^2)^(3/2)
+    // x = t, y = t^2
+    // x' = 1, x'' = 0, y' = 2t, y'' = 2
+    // Numerator: |1*2 - 2t*0| = 2
+    // Denominator: (1^2 + (2t)^2)^(3/2) = (1 + 4t^2)^(3/2)
+    float denomQuad = std::pow(1.0f + 4.0f * tQuad * tQuad, 1.5f);
+    float expectedQuad = 2.0f / denomQuad;
+    float computedQuad = quadratic.evaluateCurvature(tQuad);
+    float tolQuad = tol.evaluateEpsilon(std::abs(expectedQuad)) * 10.0f;
+    float scaledTolQuad = tolQuad * 100.0f;
+    float diffQuad = std::abs(computedQuad - expectedQuad);
+    std::cout << "[DEBUG] Quadratic: expected=" << expectedQuad
+              << ", computed=" << computedQuad
+              << ", diff=" << diffQuad
+              << ", tol=" << std::scientific << std::setprecision(6) << tolQuad
+              << ", scaledTol=" << std::scientific << std::setprecision(6) << scaledTolQuad
+              << std::defaultfloat << std::endl;
+    printTest("Quadratic curve curvature", diffQuad <= scaledTolQuad);
+
+    // --- Helix Curve: x=cos(2πt), y=sin(2πt), z=t, t in [0,1] ---
+    float tHelix = 0.25f;
+    auto helixFunc = [](float t) -> Point3 {
+        return Point3{static_cast<float>(std::cos(2*M_PI*t)), static_cast<float>(std::sin(2*M_PI*t)), t};
+    };
+    Curve3 helix(helixFunc, 0.0f, 1.0f);
+    float expectedHelix = 0.975295f;
+    float computedHelix = helix.evaluateCurvature(tHelix);
+    float tolHelix = tol.evaluateEpsilon(std::abs(expectedHelix)) * 10.0f;
+    float scaledTolHelix = tolHelix * 200.0f;
+    float diffHelix = std::abs(computedHelix - expectedHelix);
+    std::cout << "[DEBUG] Helix: expected=" << expectedHelix
+              << ", computed=" << computedHelix
+              << ", diff=" << diffHelix
+              << ", tol=" << std::scientific << std::setprecision(6) << tolHelix
+              << ", scaledTol=" << std::scientific << std::setprecision(6) << scaledTolHelix
+              << std::defaultfloat << std::endl;
+    printTest("Helix curve curvature", diffHelix <= scaledTolHelix);
+
+    // --- Sinusoidal Curve: (t, sin(2πt)), t in [0,1] ---
+    float tSine = 0.25f;
+    auto sinusoidalFunc = [](float t) -> Point2 { return Point2{t, std::sin(2.0f * float(M_PI) * t)}; };
+    Curve2 sinusoidal(sinusoidalFunc, 0.0f, 1.0f);
+    // x = t, y = sin(2πt)
+    // x' = 1, x'' = 0
+    // y' = 2π cos(2πt), y'' = -4π^2 sin(2πt)
+    // kappa = |x'y'' - y'x''| / (x'^2 + y'^2)^(3/2)
+    float x1 = 1.0f;
+    float x2 = 0.0f;
+    float y1 = 2.0f * float(M_PI) * std::cos(2.0f * float(M_PI) * tSine);
+    float y2 = -4.0f * float(M_PI) * float(M_PI) * std::sin(2.0f * float(M_PI) * tSine);
+    float numSine = std::abs(x1 * y2 - y1 * x2);
+    float denomSine = std::pow(x1 * x1 + y1 * y1, 1.5f);
+    float expectedSine = denomSine > 1e-12f ? numSine / denomSine : 0.0f;
+    float computedSine = sinusoidal.evaluateCurvature(tSine);
+    float tolSine = tol.evaluateEpsilon(std::abs(expectedSine)) * 10.0f;
+    float scaledTolSine = tolSine * 500.0f;
+    float diffSine = std::abs(computedSine - expectedSine);
+    std::cout << "[DEBUG] Sinusoidal: expected=" << expectedSine
+              << ", computed=" << computedSine
+              << ", diff=" << diffSine
+              << ", tol=" << std::scientific << std::setprecision(6) << tolSine
+              << ", scaledTol=" << std::scientific << std::setprecision(6) << scaledTolSine
+              << std::defaultfloat << std::endl;
+    printTest("Sinusoidal curve curvature", diffSine <= scaledTolSine);
+}
+
 
 // Resolution sweep for curve integral (adaptive tolerance)
 inline void testCurveIntegralResolutionSweep() {
@@ -769,6 +885,9 @@ inline void testCurve() {
     // Run integral test suite
     testCurveIntegral();
     testCurveIntegralResolutionSweep();
+
+    // Run curvature test suite
+    testCurveCurvature();
     
     
 }
