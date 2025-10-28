@@ -339,7 +339,7 @@ LineIntersectionResult<T, N> intersect(const Line<T, N>& line, const Curve<T, N>
     T extent = std::abs(u1 - u0);
 
     // Efficient curvature-aware adaptive cap (bounded)
-    T curvatureIntegral = std::clamp(c.evaluateIntegral(tol, 64), T(1e-6), T(1e3));
+    T curvatureIntegral = std::clamp(c.evaluateIntegral(), T(1e-6), T(1e3));
 
     // Hybrid curvature + tolerance scaling (Parasolid-style heuristic)
     int base_divs = std::max(64, int(std::min(

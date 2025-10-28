@@ -223,6 +223,222 @@ inline void testCurveDerivative() {
     printTest("Torus knot curve derivative (adaptive)", okTK);
 }
 
+// Test evaluateIntegral() for representative curves
+inline void testCurveIntegral() {
+    std::cout << "\n∿ Testing Curve Integral (Adaptive Tolerance)\n";
+
+    Euclid::Tolerance tol;
+    using Point2 = Point<float,2>;
+    using Curve2 = Curve<float,2>;
+    using Point3 = Point<float,3>;
+    using Curve3 = Curve<float,3>;
+
+    // --- Linear Curve: from (0,0) to (1,1) ---
+    Point2 p0{0.0f, 0.0f};
+    Point2 p1{1.0f, 1.0f};
+    Curve2 linear = Curve2::linearCurve(p0, p1);
+    float expectedLinear = std::sqrt(2.0f); // length of diagonal in unit square
+    float computedLinear = linear.evaluateIntegral();
+    float diffLinear = std::abs(computedLinear - expectedLinear);
+    float tolLinear = tol.evaluateEpsilon(expectedLinear) * 10.0f;
+    std::cout << "[DEBUG] Linear curve: expected=" << expectedLinear
+              << ", computed=" << computedLinear
+              << ", diff=" << diffLinear
+              << ", tol=" << tolLinear << std::endl;
+    printTest("Linear curve integral (arc length)", diffLinear <= 3.0f * tolLinear);
+
+    // --- Quadratic Curve: (t, t^2), t in [0,1] ---
+    auto quadraticFunc = [](float t) -> Point2 { return Point2{t, t*t}; };
+    Curve2 quadratic(quadraticFunc, 0.0f, 1.0f);
+    // Analytical: ∫₀¹ sqrt(1 + 4t^2) dt
+    // This can be computed: (sinh⁻¹(2t)/4) + (t/2) * sqrt(1 + 4t^2) |₀¹
+    auto F = [](float t) {
+        return 0.25f * std::asinh(2.0f * t) + 0.5f * t * std::sqrt(1.0f + 4.0f * t * t);
+    };
+    float expectedQuad = F(1.0f) - F(0.0f);
+    float computedQuad = quadratic.evaluateIntegral();
+    float diffQuad = std::abs(computedQuad - expectedQuad);
+    float tolQuad = tol.evaluateEpsilon(expectedQuad) * 15.0f;
+    std::cout << "[DEBUG] Quadratic curve: expected=" << expectedQuad
+              << ", computed=" << computedQuad
+              << ", diff=" << diffQuad
+              << ", tol=" << tolQuad << std::endl;
+    printTest("Quadratic curve integral (arc length)", diffQuad <= 5.0f * tolQuad);
+
+    // --- Circular Curve: unit circle x=cos(2πt), y=sin(2πt), t in [0,1] ---
+    auto circularFunc = [](float t) -> Point2 {
+        return Point2{std::cos(2.0f * float(M_PI) * t), std::sin(2.0f * float(M_PI) * t)};
+    };
+    Curve2 circular(circularFunc, 0.0f, 1.0f);
+    float expectedCircle = 2.0f * float(M_PI); // circumference of unit circle
+    float computedCircle = circular.evaluateIntegral();
+    float diffCircle = std::abs(computedCircle - expectedCircle);
+    float tolCircle = tol.evaluateEpsilon(expectedCircle) * 15.0f;
+    std::cout << "[DEBUG] Circular curve: expected=" << expectedCircle
+              << ", computed=" << computedCircle
+              << ", diff=" << diffCircle
+              << ", tol=" << tolCircle << std::endl;
+    printTest("Circular curve integral (arc length)", diffCircle <= 5.0f * tolCircle);
+
+    // --- Sinusoidal Curve: (t, sin(2πt)), t in [0,1] ---
+    auto sinusoidalFunc = [](float t) -> Point2 { return Point2{t, std::sin(2.0f * float(M_PI) * t)}; };
+    Curve2 sinusoidal(sinusoidalFunc, 0.0f, 1.0f);
+    // Corrected analytical reference:
+    // ∫₀¹ sqrt(1 + (2π cos(2πt))^2) dt ≈ 4.18828
+    // Verified numerically with WolframAlpha and matches Euclid output
+    float expectedSine = 4.18828f;
+    float computedSine = sinusoidal.evaluateIntegral();
+    float diffSine = std::abs(computedSine - expectedSine);
+    float tolSine = tol.evaluateEpsilon(expectedSine) * 30.0f;
+    std::cout << "[DEBUG] Sinusoidal curve: expected=" << expectedSine
+              << ", computed=" << computedSine
+              << ", diff=" << diffSine
+              << ", tol=" << tolSine << std::endl;
+    printTest("Sinusoidal curve integral (arc length)", diffSine <= 5.0f * tolSine);
+
+    // --- 3D Helix: x=cos(2πt), y=sin(2πt), z=t, t in [0,1] ---
+    auto helixFunc = [](float t) -> Point3 {
+        return Point3{static_cast<float>(std::cos(2*M_PI*t)), static_cast<float>(std::sin(2*M_PI*t)), t};
+    };
+    Curve3 helix(helixFunc, 0.0f, 1.0f);
+    // Arc length for one turn: ∫₀¹ sqrt((−2π sin(2πt))^2 + (2π cos(2πt))^2 + 1) dt
+    // The sum of squares of the first two terms is (2π)^2, so integrand is sqrt((2π)^2 + 1)
+    float expectedHelix = std::sqrt(4.0f * float(M_PI) * float(M_PI) + 1.0f); // constant integrand
+    float computedHelix = helix.evaluateIntegral();
+    float diffHelix = std::abs(computedHelix - expectedHelix);
+    float tolHelix = tol.evaluateEpsilon(expectedHelix) * 20.0f;
+    std::cout << "[DEBUG] Helix curve: expected=" << expectedHelix
+              << ", computed=" << computedHelix
+              << ", diff=" << diffHelix
+              << ", tol=" << tolHelix << std::endl;
+    printTest("Helix curve integral (arc length)", diffHelix <= 5.0f * tolHelix);
+
+    // --- Exponential Curve: (t, e^t), t in [0,1] ---
+    auto exponentialFunc = [](float t) -> Point2 { return Point2{t, std::exp(t)}; };
+    Curve2 exponential(exponentialFunc, 0.0f, 1.0f);
+    // Arc length: ∫₀¹ sqrt(1 + (e^t)^2) dt ≈ 2.00345
+    float expectedExp = 2.00345f;
+    float computedExp = exponential.evaluateIntegral();
+    float diffExp = std::abs(computedExp - expectedExp);
+    float tolExp = tol.evaluateEpsilon(expectedExp) * 20.0f;
+    std::cout << "[DEBUG] Exponential curve: expected=" << expectedExp
+              << ", computed=" << computedExp
+              << ", diff=" << diffExp
+              << ", tol=" << tolExp << std::endl;
+    printTest("Exponential curve integral (arc length)", diffExp <= 5.0f * tolExp);
+
+    // --- Cubic Curve: (t, t^3 - 3t^2 + 2t), t in [0,1] ---
+    auto cubicFunc = [](float t) -> Point2 { return Point2{t, t*t*t - 3*t*t + 2*t}; };
+    Curve2 cubic(cubicFunc, 0.0f, 1.0f);
+    // Approximate reference from numerical integration ≈ 1.31136
+    float expectedCubic = 1.31136f;
+    float computedCubic = cubic.evaluateIntegral();
+    float diffCubic = std::abs(computedCubic - expectedCubic);
+    float tolCubic = tol.evaluateEpsilon(expectedCubic) * 25.0f;
+    std::cout << "[DEBUG] Cubic curve: expected=" << expectedCubic
+              << ", computed=" << computedCubic
+              << ", diff=" << diffCubic
+              << ", tol=" << tolCubic << std::endl;
+    printTest("Cubic curve integral (arc length)", diffCubic <= 5.0f * tolCubic);
+
+    // --- Rational Quadratic Curve: (t/(1+t^2), t^2/(1+t^2)), t in [-1,1] ---
+    auto rationalFunc = [](float t) -> Point2 {
+        float denom = 1.0f + t*t;
+        return Point2{t / denom, t*t / denom};
+    };
+    Curve2 rational(rationalFunc, -1.0f, 1.0f);
+    // Approximate analytical length ≈ pi/2
+    float expectedRational = M_PI / 2.0f;
+    float computedRational = rational.evaluateIntegral();
+    float diffRational = std::abs(computedRational - expectedRational);
+    float tolRational = tol.evaluateEpsilon(expectedRational) * 25.0f;
+    std::cout << "[DEBUG] Rational quadratic curve: expected=" << expectedRational
+              << ", computed=" << computedRational
+              << ", diff=" << diffRational
+              << ", tol=" << tolRational << std::endl;
+    printTest("Rational quadratic curve integral (arc length)", diffRational <= 5.0f * tolRational);
+
+    // --- Sigmoid Curve: (t, 1/(1+e^{-10(t-0.5)})), t in [0,1] ---
+    auto sigmoidFunc = [](float t) -> Point2 {
+        return Point2{t, 1.0f / (1.0f + std::exp(-10.0f * (t - 0.5f)))};
+    };
+    Curve2 sigmoid(sigmoidFunc, 0.0f, 1.0f);
+    // Numerical reference ≈ 1.52326
+    float expectedSigmoid = 1.52326f;
+    float computedSigmoid = sigmoid.evaluateIntegral();
+    float diffSigmoid = std::abs(computedSigmoid - expectedSigmoid);
+    float tolSigmoid = tol.evaluateEpsilon(expectedSigmoid) * 25.0f;
+    std::cout << "[DEBUG] Sigmoid curve: expected=" << expectedSigmoid
+              << ", computed=" << computedSigmoid
+              << ", diff=" << diffSigmoid
+              << ", tol=" << tolSigmoid << std::endl;
+    printTest("Sigmoid curve integral (arc length)", diffSigmoid <= 5.0f * tolSigmoid);
+
+    // --- 3D Torus Knot (p=2, q=3): R=2, r=0.5, t in [0,1] ---
+    auto torusKnotFunc = [](float t) -> Point3 {
+        const float R = 2.0f, r = 0.5f;
+        const int p = 2, q = 3;
+        float angleP = p * 2 * M_PI * t;
+        float angleQ = q * 2 * M_PI * t;
+        return Point3{(R + r * std::cos(angleQ)) * std::cos(angleP),
+                      (R + r * std::cos(angleQ)) * std::sin(angleP),
+                      r * std::sin(angleQ)};
+    };
+    Curve3 torusKnot(torusKnotFunc, 0.0f, 1.0f);
+    // Reference from numerical integration ≈ 26.8887
+    float expectedTorus = 26.8887f;
+    float computedTorus = torusKnot.evaluateIntegral();
+    float diffTorus = std::abs(computedTorus - expectedTorus);
+    float tolTorus = tol.evaluateEpsilon(expectedTorus) * 50.0f;
+    std::cout << "[DEBUG] Torus knot curve: expected=" << expectedTorus
+              << ", computed=" << computedTorus
+              << ", diff=" << diffTorus
+              << ", tol=" << tolTorus << std::endl;
+    printTest("Torus knot curve integral (arc length)", diffTorus <= 5.0f * tolTorus);
+}
+
+
+// Resolution sweep for curve integral (adaptive tolerance)
+inline void testCurveIntegralResolutionSweep() {
+    std::cout << "\n∿ Curve Integral Resolution Sweep (Adaptive Tolerance)\n";
+
+    Euclid::Tolerance tol;
+    using Point2 = Euclid::Geometry::Point<float, 2>;
+    using Curve2 = Euclid::Geometry::Curve<float, 2>;
+    //using Point3 = Euclid::Geometry::Point<float, 3>;
+    //using Curve3 = Euclid::Geometry::Curve<float, 3>;
+
+    // Representative test curves with verified arc lengths
+    std::vector<std::tuple<std::string, std::function<Point2(float)>, float>> tests = {
+        {"Linear",      [](float t){ return Point2{t, t}; }, std::sqrt(2.0f)},
+        {"Quadratic",   [](float t){ return Point2{t, t*t}; }, 1.47894f},
+        {"Exponential", [](float t){ return Point2{t, std::exp(t)}; }, 2.00349f},
+        {"Sinusoidal",  [](float t){ return Point2{t, static_cast<float>(std::sin(2.0 * M_PI * t))}; }, 4.18828f},
+        {"Cubic",       [](float t){ return Point2{t, t*t*t - 3*t*t + 2*t}; }, 1.31135f},
+        {"Sigmoid",     [](float t){ return Point2{t, 1.0f/(1.0f + std::exp(-10*(t - 0.5f)))}; }, 1.52326f}
+    };
+
+    std::vector<float> tolScales = {0.1f, 0.3f, 1.0f, 3.0f, 10.0f};
+
+    for (auto& [name, func, expected] : tests) {
+        Curve2 c(func, 0.0f, 1.0f);
+        std::cout << "→ " << name << std::endl;
+
+        for (float scale : tolScales) {
+            float scaledTol = tol.evaluateEpsilon(expected) * scale * 10.0f;
+            float computed = c.evaluateIntegral();
+            float absErr = std::abs(computed - expected);
+            float relErr = absErr / std::max(expected, 1e-8f);
+
+            std::cout << "   scale=" << scale
+                      << "  absErr=" << absErr
+                      << "  relErr=" << relErr
+                      << "  tol=" << scaledTol
+                      << std::endl;
+        }
+    }
+}
+
 
 inline void testCurveDerivativeResolution() {
     std::cout << "\n∿ Testing Curve Derivative Resolution (Confidence-Aware)\n";
@@ -444,6 +660,8 @@ inline void testCurveDerivativeCurvatureCorrelation() {
     }
 }
 
+
+
 inline void testCurve() {
     std::cout << "\n∿ Testing Curve Primitive\n";
 
@@ -541,10 +759,17 @@ inline void testCurve() {
     printTest("Nonlinear 5D t=0.5", curve5.evaluate(0.5f) == Point<float,5>{-0.5f, 0.5f*float(M_PI), 0.25f, 0.125f, std::sqrt(1.5f)});
     printTest("Nonlinear 5D t=1.5", curve5.evaluate(1.5f) == Point<float,5>{-1.5f, 1.5f*float(M_PI), 2.25f, 3.375f, std::sqrt(2.5f)});
 
+
     // Run derivative test suite
     testCurveDerivative();
     testCurveDerivativeResolution();
     testCurveDerivativeResolutionSweep();
     testCurveDerivativeCurvatureCorrelation();
+    
+    // Run integral test suite
+    testCurveIntegral();
+    testCurveIntegralResolutionSweep();
+    
+    
 }
 

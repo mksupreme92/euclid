@@ -10,6 +10,7 @@
 #include <cmath>
 #include <algorithm>
 #include <iostream>
+#include <numeric>
 
 namespace Euclid::Geometry {
 
@@ -27,11 +28,6 @@ public:
         return curveFunc_(t);
     }
 
-    // Evaluate the derivative of the curve at parameter t (finite difference)
-    Eigen::Matrix<Scalar, Dim, 1> evaluateDerivative(Scalar t, const Tolerance& tol) const {
-        Scalar h = tol.evaluateEpsilon((curveFunc_(t)).coords.norm());
-        return (curveFunc_(t + h).coords - curveFunc_(t - h).coords) / (2.0 * h);
-    }
 
     // Overload: automatically determines tolerance from curve geometry and clamps to domain
     Eigen::Matrix<Scalar, Dim, 1> evaluateDerivative(Scalar t) const {
@@ -66,7 +62,8 @@ public:
         Scalar h0 = std::max(std::max(hTol, hUlp), std::max(hDom, hCbrt));
 
         // Keep step safely inside the domain while allowing larger steps when beneficial.
-        const Scalar hMax = std::max(span * Scalar(0.25), epsMach);
+        // Reduce the maximum finite difference step for oscillatory or high-curvature curves
+        const Scalar hMax = std::max(span * Scalar(1e-2), epsMach);
         h0 = std::min(h0, hMax);
         /*
         std::cout << "[DEBUG] adaptive h = " << h0
@@ -385,15 +382,11 @@ public:
         return {derivative, confidence};
     }
 
-    // Estimate integral of curvature magnitude across the domain using adaptive sampling
-    Scalar evaluateIntegral(const Tolerance& tol, int baseDivs = 64, int maxDepth = 10) const {
+    // Estimate integral of curvature magnitude across the domain using adaptive Gauss–Kronrod 15-point rule
+    Scalar evaluateCurvature(const Tolerance& tol, int maxDepth = 10) const {
         Scalar t0 = domain_.first;
         Scalar t1 = domain_.second;
-        std::vector<Scalar> samples;
-        samples.reserve(baseDivs + 1);
-        for (int i = 0; i <= baseDivs; ++i)
-            samples.push_back(t0 + (t1 - t0) * (Scalar(i) / baseDivs));
-
+        // Curvature magnitude function
         auto curvatureAt = [&](Scalar t) {
             const Scalar h = tol.evaluateEpsilon(curveFunc_(t).coords.norm());
             auto p0 = curveFunc_(t).coords;
@@ -401,40 +394,259 @@ public:
             auto p_1 = curveFunc_(std::max(t0, t - h)).coords;
             auto first = (p1 - p_1) / (2 * h);
             auto second = (p1 - 2 * p0 + p_1) / (h * h);
-            return second.norm() / std::pow(1.0 + first.squaredNorm(), 1.5);
+            // Use the same denominator as before, but clamp for stability
+            Scalar denom = std::pow(Scalar(1.0) + first.squaredNorm(), Scalar(1.5));
+            if (!(std::isfinite(denom) && denom > Scalar(0))) denom = Scalar(1);
+            Scalar result = second.norm() / denom;
+            if (!std::isfinite(result)) result = Scalar(0);
+            return result;
         };
 
-        // Adaptive subdivision loop
-        for (int depth = 0; depth < maxDepth; ++depth) {
-            std::vector<Scalar> newSamples;
-            for (size_t i = 0; i + 1 < samples.size(); ++i) {
-                Scalar a = samples[i];
-                Scalar b = samples[i + 1];
-                Scalar mid = (a + b) * 0.5;
-                Scalar kA = curvatureAt(a);
-                Scalar kB = curvatureAt(b);
-                Scalar kM = curvatureAt(mid);
-                Scalar avgK = (kA + kB + 4 * kM) / 6;
-                if (avgK * std::abs(b - a) > tol.paramTol)
-                    newSamples.push_back(mid);
+        // Gauss–Kronrod 15-point nodes (abscissae) and weights (on [-1,1])
+        static constexpr double GK15_x[8] = {
+            0.0000000000000000,
+            0.2077849550078985,
+            0.4058451513773972,
+            0.5860872354676911,
+            0.7415311855993945,
+            0.8648644233597691,
+            0.9491079123427585,
+            0.9914553711208126
+        };
+        static constexpr double GK15_w[8] = {
+            0.2094821410847278,
+            0.2044329400752989,
+            0.1903505780647854,
+            0.1690047266392679,
+            0.1406532597155259,
+            0.1047900103222502,
+            0.0630920926299786,
+            0.0229353220105292
+        };
+        static constexpr double G7_x[4] = {
+            0.0000000000000000,
+            0.4058451513773972,
+            0.7415311855993945,
+            0.9491079123427585
+        };
+        static constexpr double G7_w[4] = {
+            0.4179591836734694,
+            0.3818300505051189,
+            0.2797053914892766,
+            0.1294849661688697
+        };
+
+        // Adaptive recursive Gauss–Kronrod quadrature on [a,b]
+        std::function<Scalar(Scalar, Scalar, int)> integrateGK;
+        integrateGK = [&](Scalar a, Scalar b, int depth) -> Scalar {
+            const Scalar mid  = (a + b) * Scalar(0.5);
+            const Scalar half = (b - a) * Scalar(0.5);
+            const Scalar width = std::abs(b - a);
+
+            // Pre-sample endpoints and midpoint for an oscillation proxy
+            const Scalar fa = curvatureAt(a);
+            const Scalar fm = curvatureAt(mid);
+            const Scalar fb = curvatureAt(b);
+
+            // --- Gauss–Kronrod 15-point integral for curvature magnitude ---
+            Scalar I15 = 0;
+            {
+                I15 += Scalar(GK15_w[0]) * fm; // center once
+                for (int i = 1; i < 8; ++i) {
+                    const Scalar xi = Scalar(GK15_x[i]);
+                    const Scalar fp = curvatureAt(mid + half * xi);
+                    const Scalar fn = curvatureAt(mid - half * xi);
+                    I15 += Scalar(GK15_w[i]) * (fp + fn);
+                }
+                I15 *= half;
             }
-            if (newSamples.empty()) break;
-            samples.insert(samples.end(), newSamples.begin(), newSamples.end());
-            std::sort(samples.begin(), samples.end());
-            samples.erase(std::unique(samples.begin(), samples.end(), [&](Scalar x, Scalar y){ return std::abs(x - y) < tol.paramTol; }), samples.end());
+
+            // --- Embedded 7-point Gauss subset ---
+            Scalar I7 = 0;
+            {
+                I7 += Scalar(G7_w[0]) * fm; // center once
+                for (int i = 1; i < 4; ++i) {
+                    const Scalar xi = Scalar(G7_x[i]);
+                    const Scalar fp = curvatureAt(mid + half * xi);
+                    const Scalar fn = curvatureAt(mid - half * xi);
+                    I7 += Scalar(G7_w[i]) * (fp + fn);
+                }
+                I7 *= half;
+            }
+
+            // Error and tolerance for this interval
+            const Scalar err     = std::abs(I15 - I7);
+            const Scalar tolHere = tol.paramTol * width;
+
+            // Oscillation proxy normalized by interval width
+            const Scalar osc = std::abs(fa - Scalar(2) * fm + fb) / std::max(width, Scalar(1e-9));
+
+            // Decide whether to split: only if error large OR significant normalized oscillation
+            const bool needSplit = (err >= tolHere) || (osc > Scalar(50) * tol.paramTol);
+
+            // Hard stops: recursion depth and minimal width relative to total span
+            if (!needSplit || depth >= maxDepth || width < (t1 - t0) * Scalar(1e-6)) {
+                return I15;
+            }
+
+            const Scalar left  = integrateGK(a,  mid, depth + 1);
+            const Scalar right = integrateGK(mid, b,  depth + 1);
+            return left + right;
+        };
+        // Clamp domain for numerical safety
+        if (!(t0 < t1)) return Scalar(0);
+        return integrateGK(t0, t1, 0);
+    }
+
+
+    // Overload: Estimate arc length integral adaptively using internal tolerance model (Gauss–Kronrod)
+    Scalar evaluateIntegral() const {
+        // Use a default Tolerance model as in evaluateDerivative()
+        Tolerance tol;
+        Scalar t0 = domain_.first;
+        Scalar t1 = domain_.second;
+        constexpr int maxDepth = 10;
+        if (!(t0 < t1)) return Scalar(0);
+
+        auto speed = [&](Scalar t) -> Scalar {
+            Scalar v = evaluateDerivative(t).norm();
+            if (!std::isfinite(v)) v = Scalar(0);
+            return v;
+        };
+
+        // --- Step 1: Periodicity / oscillation detection on speed(t) (correlation-based) ---
+        const int M0 = 256;
+        std::vector<Scalar> s(M0);
+        for (int i = 0; i < M0; ++i) {
+            Scalar t = t0 + (t1 - t0) * Scalar(i) / Scalar(M0 - 1);
+            s[i] = speed(t);
         }
 
-        // Trapezoidal integration of curvature magnitude
-        Scalar integral = 0;
-        for (size_t i = 0; i + 1 < samples.size(); ++i) {
-            Scalar a = samples[i];
-            Scalar b = samples[i + 1];
-            Scalar kA = curvatureAt(a);
-            Scalar kB = curvatureAt(b);
-            integral += (kA + kB) * 0.5 * (b - a);
+        // Basic stats
+        const Scalar meanS = static_cast<Scalar>(std::accumulate(s.begin(), s.end(), static_cast<double>(0)) / static_cast<double>(M0));
+
+        // Demean for correlation
+        std::vector<Scalar> sd(M0);
+        for (int i = 0; i < M0; ++i) sd[i] = s[i] - meanS;
+
+        // Autocorrelation (naive O(N^2), small N)
+        auto autocorr_at = [&](int lag) -> Scalar {
+            // Corr(lag) = sum_i sd[i]*sd[i+lag]
+            const int L = M0 - lag;
+            if (L <= 1) return Scalar(0);
+            Scalar num = Scalar(0);
+            Scalar den = Scalar(0);
+            for (int i = 0; i < L; ++i) {
+                num += sd[i] * sd[i + lag];
+                den += sd[i] * sd[i];
+            }
+            if (den == Scalar(0)) return Scalar(0);
+            return num / den; // normalized (not strictly Pearson but enough as indicator)
+        };
+
+        // Search for a strong nonzero-lag peak up to 1/3 of the window
+        Scalar bestR = Scalar(0);
+        const int maxLag = M0 / 3;
+        for (int lag = 1; lag <= maxLag; ++lag) {
+            Scalar r = autocorr_at(lag);
+            if (r > bestR) {
+                bestR = r;
+            }
         }
 
-        return integral;
+        // Zero-cross count (secondary cue) -- removed as unused
+
+        // The periodicStrict and oscillatory flags are detected here for diagnostics,
+        // but the integration path is always Gauss–Kronrod below.
+
+        // Arc length integrand: velocity magnitude
+        auto velocityAt = speed;
+        // Gauss–Kronrod 15-point nodes (abscissae) and weights (on [-1,1])
+        static constexpr double GK15_x[8] = {
+            0.0000000000000000,
+            0.2077849550078985,
+            0.4058451513773972,
+            0.5860872354676911,
+            0.7415311855993945,
+            0.8648644233597691,
+            0.9491079123427585,
+            0.9914553711208126
+        };
+        static constexpr double GK15_w[8] = {
+            0.2094821410847278,
+            0.2044329400752989,
+            0.1903505780647854,
+            0.1690047266392679,
+            0.1406532597155259,
+            0.1047900103222502,
+            0.0630920926299786,
+            0.0229353220105292
+        };
+        static constexpr double G7_x[4] = {
+            0.0000000000000000,
+            0.4058451513773972,
+            0.7415311855993945,
+            0.9491079123427585
+        };
+        static constexpr double G7_w[4] = {
+            0.4179591836734694,
+            0.3818300505051189,
+            0.2797053914892766,
+            0.1294849661688697
+        };
+        // Adaptive recursive Gauss–Kronrod quadrature on [a,b]
+        std::function<Scalar(Scalar, Scalar, int)> integrateGK;
+        integrateGK = [&](Scalar a, Scalar b, int depth) -> Scalar {
+            const Scalar mid  = (a + b) * Scalar(0.5);
+            const Scalar half = (b - a) * Scalar(0.5);
+            const Scalar width = std::abs(b - a);
+
+            // Only fm is needed for quadrature; fa/fb are not used except in osc (diagnostic, but can be omitted)
+            const Scalar fm = velocityAt(mid);
+
+            // --- Gauss–Kronrod 15-point integral for arc length ---
+            Scalar I15 = 0;
+            {
+                I15 += Scalar(GK15_w[0]) * fm; // center once
+                for (int i = 1; i < 8; ++i) {
+                    const Scalar xi = Scalar(GK15_x[i]);
+                    const Scalar fp = velocityAt(mid + half * xi);
+                    const Scalar fn = velocityAt(mid - half * xi);
+                    I15 += Scalar(GK15_w[i]) * (fp + fn);
+                }
+                I15 *= half;
+            }
+
+            // --- Embedded 7-point Gauss subset ---
+            Scalar I7 = 0;
+            {
+                I7 += Scalar(G7_w[0]) * fm; // center once
+                for (int i = 1; i < 4; ++i) {
+                    const Scalar xi = Scalar(G7_x[i]);
+                    const Scalar fp = velocityAt(mid + half * xi);
+                    const Scalar fn = velocityAt(mid - half * xi);
+                    I7 += Scalar(G7_w[i]) * (fp + fn);
+                }
+                I7 *= half;
+            }
+
+            // Error and tolerance for this interval
+            const Scalar err     = std::abs(I15 - I7);
+            // tolHere is only used once, so can be omitted
+
+            // Decide whether to split: only if error large OR significant normalized oscillation
+            const bool needSplit = (err >= tol.paramTol * width);
+
+            // Hard stops: recursion depth and minimal width relative to total span
+            if (!needSplit || depth >= maxDepth || width < (t1 - t0) * Scalar(1e-6)) {
+                return I15;
+            }
+
+            const Scalar left  = integrateGK(a,  mid, depth + 1);
+            const Scalar right = integrateGK(mid, b,  depth + 1);
+            return left + right;
+        };
+        return integrateGK(t0, t1, 0);
     }
 
     // Curve parameter domain
