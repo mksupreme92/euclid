@@ -223,6 +223,226 @@ inline void testCurveDerivative() {
     printTest("Torus knot curve derivative (adaptive)", okTK);
 }
 
+// Test evaluateSecondDerivative() for representative curves
+inline void testCurveSecondDerivative() {
+    std::cout << "\n∿ Testing Curve Second Derivative (Adaptive Tolerance)\n";
+
+    Euclid::Tolerance tol;
+    using Point2 = Euclid::Geometry::Point<float, 2>;
+    using Curve2 = Euclid::Geometry::Curve<float, 2>;
+    using Point3 = Euclid::Geometry::Point<float, 3>;
+    using Curve3 = Euclid::Geometry::Curve<float, 3>;
+
+    // --- Linear Curve: (t, t), second derivative = (0,0)
+    Curve2 linear = Curve2::linearCurve(Point2{0.0f, 0.0f}, Point2{1.0f, 1.0f});
+    float tMid = 0.5f;
+    auto d2_lin = linear.evaluateSecondDerivative(tMid);
+    Eigen::Vector2f expectedLin(0.0f, 0.0f);
+    float diffLin = (d2_lin - expectedLin).norm();
+    // Adaptive tolerance based on expected magnitude
+    float relTolLin = std::max(1e-5f, std::abs(expectedLin.norm()) * 1e-3f);
+    std::cout << "[DEBUG] Linear: expected=" << expectedLin.transpose()
+              << ", got=" << d2_lin.transpose()
+              << ", diff=" << diffLin
+              << ", relTol=" << relTolLin << std::endl;
+    printTest("Linear curve second derivative (adaptive)", diffLin <= relTolLin);
+
+    // --- Quadratic Curve: (t, t^2), second derivative = (0,2)
+    auto quadFunc = [](float t) -> Point2 { return Point2{t, t * t}; };
+    Curve2 quadratic(quadFunc, 0.0f, 1.0f);
+    auto d2_quad = quadratic.evaluateSecondDerivative(tMid);
+    Eigen::Vector2f expectedQuad(0.0f, 2.0f);
+    float diffQuad = (d2_quad - expectedQuad).norm();
+    float relTolQuad = std::max(1e-5f, std::abs(expectedQuad.norm()) * 1e-3f);
+    std::cout << "[DEBUG] Quadratic: expected=" << expectedQuad.transpose()
+              << ", got=" << d2_quad.transpose()
+              << ", diff=" << diffQuad
+              << ", relTol=" << relTolQuad << std::endl;
+    printTest("Quadratic curve second derivative (adaptive)", diffQuad <= relTolQuad);
+
+    // --- Circular Curve: x=cos(2πt), y=sin(2πt), second derivative = (−(2π)^2 cos(2πt), −(2π)^2 sin(2πt))
+    auto circFunc = [](float t) -> Point2 {
+        return Point2{std::cos(2.0f * float(M_PI) * t), std::sin(2.0f * float(M_PI) * t)};
+    };
+    Curve2 circular(circFunc, 0.0f, 1.0f);
+    tMid = 0.25f;
+    auto d2_circ = circular.evaluateSecondDerivative(tMid);
+    Eigen::Vector2f expectedCirc(-(2.0f * float(M_PI)) * (2.0f * float(M_PI)) * std::cos(2.0f * float(M_PI) * tMid),
+                                 -(2.0f * float(M_PI)) * (2.0f * float(M_PI)) * std::sin(2.0f * float(M_PI) * tMid));
+    float diffCirc = (d2_circ - expectedCirc).norm();
+    float relTolCirc = std::max(1e-5f, std::abs(expectedCirc.norm()) * 1e-3f);
+    std::cout << "[DEBUG] Circular: expected=" << expectedCirc.transpose()
+              << ", got=" << d2_circ.transpose()
+              << ", diff=" << diffCirc
+              << ", relTol=" << relTolCirc << std::endl;
+    printTest("Circular curve second derivative (adaptive)", diffCirc <= relTolCirc);
+
+    // --- Sinusoidal Curve: (t, sin(2πt)), second derivative = (0, −(2π)^2 sin(2πt))
+    auto sineFunc = [](float t) -> Point2 { return Point2{t, std::sin(2.0f * float(M_PI) * t)}; };
+    Curve2 sinusoidal(sineFunc, 0.0f, 1.0f);
+    tMid = 0.25f;
+    auto d2_sine = sinusoidal.evaluateSecondDerivative(tMid);
+    Eigen::Vector2f expectedSine(0.0f, -(2.0f * float(M_PI)) * (2.0f * float(M_PI)) * std::sin(2.0f * float(M_PI) * tMid));
+    float diffSine = (d2_sine - expectedSine).norm();
+    float relTolSine = std::max(1e-5f, std::abs(expectedSine.norm()) * 1e-3f);
+    std::cout << "[DEBUG] Sinusoidal: expected=" << expectedSine.transpose()
+              << ", got=" << d2_sine.transpose()
+              << ", diff=" << diffSine
+              << ", relTol=" << relTolSine << std::endl;
+    printTest("Sinusoidal curve second derivative (adaptive)", diffSine <= relTolSine);
+
+    // --- 3D Helix Curve: (cos(2πt), sin(2πt), t), second derivative = (−(2π)^2 cos(2πt), −(2π)^2 sin(2πt), 0)
+    auto helixFunc = [](float t) -> Point3 {
+        return Point3{static_cast<float>(std::cos(2*M_PI*t)), static_cast<float>(std::sin(2*M_PI*t)), t};
+    };
+    Curve3 helix(helixFunc, 0.0f, 1.0f);
+    tMid = 0.25f;
+    auto d2_helix = helix.evaluateSecondDerivative(tMid);
+    Eigen::Vector3f expectedHelix(-(2*M_PI)*(2*M_PI)*std::cos(2*M_PI*tMid),
+                                  -(2*M_PI)*(2*M_PI)*std::sin(2*M_PI*tMid),
+                                  0.0f);
+    float diffHelix = (d2_helix - expectedHelix).norm();
+    float relTolHelix = std::max(1e-5f, std::abs(expectedHelix.norm()) * 1e-3f);
+    std::cout << "[DEBUG] Helix: expected=" << expectedHelix.transpose()
+              << ", got=" << d2_helix.transpose()
+              << ", diff=" << diffHelix
+              << ", relTol=" << relTolHelix << std::endl;
+    printTest("Helix curve second derivative (adaptive)", diffHelix <= relTolHelix);
+}
+
+inline void testCurveSecondDerivativeAccuracy() {
+    std::cout << "\n∿ Testing Curve Second Derivative Accuracy (Adaptive Convergence)\n";
+    std::cout << "   This test validates the numerical accuracy of evaluateSecondDerivative(t)\n";
+    std::cout << "   for representative parametric curves under the current adaptive tolerance model.\n";
+    std::cout << "   It compares computed second derivatives against exact analytical second derivatives\n";
+    std::cout << "   at a fixed parameter (t=0.5) and reports absolute error, relative error,\n";
+    std::cout << "   and adaptive tolerance scaling.\n";
+    std::cout << "   Note: this is a pointwise accuracy validation, not a convergence (resolution) test.\n\n";
+
+    using Point2 = Euclid::Geometry::Point<float, 2>;
+    using Curve2 = Euclid::Geometry::Curve<float, 2>;
+    Euclid::Tolerance tol;
+
+    float t = 0.5f;
+
+    std::vector<std::pair<std::string, std::function<Point2(float)>>> funcs = {
+        {"Linear",    [](float t){ return Point2{t, t}; }},
+        {"Quadratic", [](float t){ return Point2{t, t*t}; }},
+        {"Exponential",[](float t){ return Point2{t, std::exp(t)}; }},
+        {"Sinusoidal",[](float t){ return Point2{t, std::sin(2.0f * float(M_PI) * t)}; }},
+        {"Circular", [](float t){
+            return Point2{
+                std::cos(2.0f * float(M_PI) * t),
+                std::sin(2.0f * float(M_PI) * t)
+            };
+        }},
+        {"Cubic", [](float t){ return Point2{t, t*t*t - 3*t*t + 2*t}; }},
+        {"Sigmoid", [](float t){
+            return Point2{t, 1.0f / (1.0f + std::exp(-10.0f * (t - 0.5f)))}; }},
+        {"Sigmoid-0.4", [](float t){
+            float tOffset = 0.4f;
+            return Point2{t, 1.0f / (1.0f + std::exp(-10.0f * (t - tOffset)))};
+        }},
+        {"Sigmoid-0.6", [](float t){
+            float tOffset = 0.6f;
+            return Point2{t, 1.0f / (1.0f + std::exp(-10.0f * (t - tOffset)))};
+        }}
+    };
+
+    // Print table header
+    std::cout << "\n| " << std::setw(12) << std::left << "Curve"
+              << " | " << std::setw(14) << "absErr"
+              << " | " << std::setw(14) << "relErr"
+              << " | " << std::setw(10) << "conf"
+              << " | " << std::setw(14) << "tol"
+              << " |\n";
+    std::cout << "|" << std::string(12 + 3 + 14 + 3 + 14 + 3 + 10 + 3 + 14 + 3, '-') << "|\n";
+
+    for (auto& [name, func] : funcs) {
+        Curve2 c(func, 0.0f, 1.0f);
+        auto d2 = c.evaluateSecondDerivative(t);
+
+        Eigen::Vector2f expected;
+        if (name == "Linear") expected = {0.0f, 0.0f};
+        else if (name == "Quadratic") expected = {0.0f, 2.0f};
+        else if (name == "Exponential") expected = {0.0f, std::exp(t)};
+        else if (name == "Sinusoidal") expected = {0.0f, -4.0f * float(M_PI*M_PI) * std::sin(2.0f * float(M_PI) * t)};
+        else if (name == "Circular") expected = {
+            -4.0f * float(M_PI*M_PI) * std::cos(2.0f * float(M_PI) * t),
+            -4.0f * float(M_PI*M_PI) * std::sin(2.0f * float(M_PI) * t)
+        };
+        else if (name == "Cubic") expected = {0.0f, 6.0f*t - 6.0f};
+        else if (name == "Sigmoid" || name == "Sigmoid-0.4" || name == "Sigmoid-0.6") {
+            float center = 0.5f;
+            if (name == "Sigmoid-0.4") center = 0.4f;
+            if (name == "Sigmoid-0.6") center = 0.6f;
+            float expTerm = std::exp(-10.0f * (t - center));
+            float denom = std::pow(1.0f + expTerm, 3);
+            expected = {0.0f, (100.0f * expTerm * (expTerm - 1.0f)) / denom};
+        }
+
+        float absErr = (d2 - expected).norm();
+        float relErr = 0.0f;
+        bool relErrValid = true;
+        float expectedNorm = expected.norm();
+        if (expectedNorm < 1e-5f) {
+            relErrValid = false; // avoid dividing by near-zero
+        } else {
+            relErr = absErr / expectedNorm;
+        }
+
+        Point2 pos = c.evaluate(t);
+        float geomScale = pos.coords.norm();
+        float baseTol = tol.evaluateEpsilon(std::max(geomScale, expected.norm()));
+        float adaptiveTol = baseTol * (20.0f + geomScale + expected.norm());
+
+        std::cout << std::scientific << std::setprecision(6)
+                  << "| " << std::setw(12) << std::left << name
+                  << " | " << std::setw(14) << std::right << absErr
+                  << " | ";
+        if (relErrValid)
+            std::cout << std::setw(14) << relErr;
+        else
+            std::cout << std::setw(14) << "-";
+        std::cout << " | " << std::setw(10) << "-"
+                  << " | " << std::setw(14) << adaptiveTol
+                  << " |\n"
+                  << std::defaultfloat;
+    }
+}
+
+inline void testCurveSecondDerivativeResolutionSweep() {
+    std::cout << "\n∿ Curve Second Derivative Tolerance Scaling Sweep\n";
+
+    using Point2 = Euclid::Geometry::Point<float, 2>;
+    using Curve2 = Euclid::Geometry::Curve<float, 2>;
+    Euclid::Tolerance tol;
+
+    float t = 0.5f;
+    std::vector<float> scaleFactors = {0.1f, 0.3f, 1.0f, 3.0f, 10.0f};
+
+    auto func = [](float t){ return Point2{t, std::sin(2.0f * float(M_PI) * t)}; };
+    Curve2 c(func, 0.0f, 1.0f);
+    Eigen::Vector2f expected(0.0f, -4.0f * float(M_PI*M_PI) * std::sin(2.0f * float(M_PI) * t));
+
+    Point2 pos = c.evaluate(t);
+    float geomScale = pos.coords.norm();
+    float baseTol = tol.evaluateEpsilon(std::max(geomScale, expected.norm()));
+
+    for (float scale : scaleFactors) {
+        auto d2 = c.evaluateSecondDerivative(t);
+        float absErr = (d2 - expected).norm();
+        float relErr = absErr / std::max(expected.norm(), 1e-8f);
+        float scaledTol = baseTol * (20.0f + geomScale + expected.norm()) * scale;
+
+        std::cout << "   scale=" << scale
+                  << "  absErr=" << absErr
+                  << "  relErr=" << relErr
+                  << "  scaledTol=" << scaledTol
+                  << std::endl;
+    }
+}
+
 // Test evaluateIntegral() for representative curves
 inline void testCurveIntegral() {
     std::cout << "\n∿ Testing Curve Integral (Adaptive Tolerance)\n";
@@ -514,50 +734,15 @@ inline void testCurveCurvature() {
 }
 
 
-// Resolution sweep for curve integral (adaptive tolerance)
-inline void testCurveIntegralResolutionSweep() {
-    std::cout << "\n∿ Curve Integral Resolution Sweep (Adaptive Tolerance)\n";
 
-    Euclid::Tolerance tol;
-    using Point2 = Euclid::Geometry::Point<float, 2>;
-    using Curve2 = Euclid::Geometry::Curve<float, 2>;
-    //using Point3 = Euclid::Geometry::Point<float, 3>;
-    //using Curve3 = Euclid::Geometry::Curve<float, 3>;
-
-    // Representative test curves with verified arc lengths
-    std::vector<std::tuple<std::string, std::function<Point2(float)>, float>> tests = {
-        {"Linear",      [](float t){ return Point2{t, t}; }, std::sqrt(2.0f)},
-        {"Quadratic",   [](float t){ return Point2{t, t*t}; }, 1.47894f},
-        {"Exponential", [](float t){ return Point2{t, std::exp(t)}; }, 2.00349f},
-        {"Sinusoidal",  [](float t){ return Point2{t, static_cast<float>(std::sin(2.0 * M_PI * t))}; }, 4.18828f},
-        {"Cubic",       [](float t){ return Point2{t, t*t*t - 3*t*t + 2*t}; }, 1.31135f},
-        {"Sigmoid",     [](float t){ return Point2{t, 1.0f/(1.0f + std::exp(-10*(t - 0.5f)))}; }, 1.52326f}
-    };
-
-    std::vector<float> tolScales = {0.1f, 0.3f, 1.0f, 3.0f, 10.0f};
-
-    for (auto& [name, func, expected] : tests) {
-        Curve2 c(func, 0.0f, 1.0f);
-        std::cout << "→ " << name << std::endl;
-
-        for (float scale : tolScales) {
-            float scaledTol = tol.evaluateEpsilon(expected) * scale * 10.0f;
-            float computed = c.evaluateIntegral();
-            float absErr = std::abs(computed - expected);
-            float relErr = absErr / std::max(expected, 1e-8f);
-
-            std::cout << "   scale=" << scale
-                      << "  absErr=" << absErr
-                      << "  relErr=" << relErr
-                      << "  tol=" << scaledTol
-                      << std::endl;
-        }
-    }
-}
-
-
-inline void testCurveDerivativeResolution() {
-    std::cout << "\n∿ Testing Curve Derivative Resolution (Confidence-Aware)\n";
+inline void testCurveDerivativeAccuracy() {
+    std::cout << "\n∿ Testing Curve Derivative Accuracy (Confidence-Aware)\n";
+    std::cout << "   This test validates the numerical accuracy of evaluateDerivativeWithConfidence(t)\n";
+    std::cout << "   for representative parametric curves under the current adaptive tolerance model.\n";
+    std::cout << "   It compares computed first derivatives against exact analytical derivatives\n";
+    std::cout << "   at a fixed parameter (t=0.5) and reports absolute error, relative error,\n";
+    std::cout << "   confidence (stability), and adaptive tolerance scaling.\n";
+    std::cout << "   Note: this is a pointwise accuracy validation, not a convergence (resolution) test.\n\n";
 
     using Point2 = Euclid::Geometry::Point<float, 2>;
     using Curve2 = Euclid::Geometry::Curve<float, 2>;
@@ -578,6 +763,15 @@ inline void testCurveDerivativeResolution() {
             };
         }},
     };
+
+    // Print table header
+    std::cout << "\n| " << std::setw(12) << std::left << "Curve"
+              << " | " << std::setw(14) << "absErr"
+              << " | " << std::setw(14) << "relErr"
+              << " | " << std::setw(10) << "conf"
+              << " | " << std::setw(14) << "tol"
+              << " |\n";
+    std::cout << "|" << std::string(12 + 3 + 14 + 3 + 14 + 3 + 10 + 3 + 14 + 3, '-') << "|\n";
 
     for (auto& [name, func] : funcs) {
         Curve2 c(func, 0.0f, 1.0f);
@@ -609,173 +803,499 @@ inline void testCurveDerivativeResolution() {
         float baseTol = tol.evaluateEpsilon(std::max(geomScale, expected.norm()));
         float adaptiveTol = baseTol * (10.0f + geomScale + expected.norm());
 
-        std::cout << "→ " << name
-                  << " | absErr=" << absErr
-                  << "  relErr=" << relErr
-                  << "  conf=" << conf
-                  << "  tol=" << adaptiveTol
-                  << std::endl;
+        std::cout << std::scientific << std::setprecision(6)
+                  << "| " << std::setw(12) << std::left << name
+                  << " | " << std::setw(14) << std::right << absErr
+                  << " | " << std::setw(14) << relErr
+                  << " | " << std::setw(10) << conf
+                  << " | " << std::setw(14) << adaptiveTol
+                  << " |\n"
+                  << std::defaultfloat;
     }
 }
 
-
-// Sweep tolerance scaling for confidence-aware derivative estimation
-inline void testCurveDerivativeResolutionSweep() {
-    std::cout << "\n∿ Curve Derivative Tolerance Scaling Sweep (Confidence-Aware)\n";
+inline void testCurveDerivativeParametricStepSensitivity() {
+    std::cout << "\n∿ Curve Derivative Parametric Step Sensitivity (Confidence-Aware)\n";
+    std::cout << "   This test examines how the derivative confidence reacts to evaluating\n";
+    std::cout << "   the curve slightly away from the target parameter. It does NOT try to\n";
+    std::cout << "   scale the tolerance; it only perturbs t and observes stability.\n\n";
 
     using Point2 = Euclid::Geometry::Point<float, 2>;
     using Curve2 = Euclid::Geometry::Curve<float, 2>;
-    Euclid::Tolerance tol;
-    float t = 0.5f;
 
-    // Representative curves
-    std::vector<std::pair<std::string, std::function<Point2(float)>>> funcs = {
-        {"Linear",    [](float t){ return Point2{t, t}; }},
-        {"Quadratic", [](float t){ return Point2{t, t*t}; }},
-        {"Sinusoidal",[](float t){ return Point2{t, std::sin(10.0f * float(M_PI) * t)}; }},
-        {"Torus-like", [](float t){
-            return Point2{
-                static_cast<float>(std::cos(8.0f*M_PI*t) * (2.0f + 0.5f*std::cos(12.0f*M_PI*t))),
-                static_cast<float>(std::sin(8.0f*M_PI*t) * (2.0f + 0.5f*std::cos(12.0f*M_PI*t)))
-            };
-        }},
+    struct CurveDef {
+        const char* name;
+        std::function<Point2(float)> fn;
+        std::function<Eigen::Vector2f(float)> exact;
     };
 
-    std::vector<float> scaleFactors = {0.1f, 0.3f, 1.0f, 3.0f, 10.0f};
-
-    for (auto& [name, func] : funcs) {
-        Curve2 c(func, 0.0f, 1.0f);
-
-        // Analytical derivative for comparison
-        Eigen::Vector2f expected;
-        if (name == "Linear") expected = {1, 1};
-        else if (name == "Quadratic") expected = {1, 2*t};
-        else if (name == "Sinusoidal") expected = {1, 10.0f*M_PI*std::cos(10.0f*M_PI*t)};
-        else if (name == "Torus-like") {
-            float θ = 8.0f*M_PI*t, φ = 12.0f*M_PI*t;
-            expected = {
-                -std::sin(θ)*(2.0f + 0.5f*std::cos(φ))*8.0f*M_PI
-                + std::cos(θ)*(-0.5f*std::sin(φ))*12.0f*M_PI,
-                 std::cos(θ)*(2.0f + 0.5f*std::cos(φ))*8.0f*M_PI
-                + std::sin(θ)*(-0.5f*std::sin(φ))*12.0f*M_PI
-            };
+    // keep it small and consistent with the other curve tests
+    std::vector<CurveDef> curves = {
+        {
+            "Linear",
+            [](float t) { return Point2{t, t}; },
+            [](float)   { return Eigen::Vector2f{1.0f, 1.0f}; }
+        },
+        {
+            "Quadratic",
+            [](float t) { return Point2{t, t * t}; },
+            [](float t) { return Eigen::Vector2f{1.0f, 2.0f * t}; }
+        },
+        {
+            "Sinusoidal",
+            [](float t) { return Point2{t, std::sin(2.0f * float(M_PI) * t)}; },
+            [](float t) { return Eigen::Vector2f{1.0f, 2.0f * float(M_PI) * std::cos(2.0f * float(M_PI) * t)}; }
         }
+    };
 
-        Point2 pos = c.evaluate(t);
-        float geomScale = pos.coords.norm();
-        float baseTol = tol.evaluateEpsilon(std::max(geomScale, expected.norm()));
+    // parameter offsets we will probe with
+    std::vector<float> deltas = {1e-1f, 3e-2f, 1e-2f, 3e-3f, 1e-3f, 3e-4f, 1e-4f};
+    float t0 = 0.5f;
 
-        for (float scale : scaleFactors) {
-            float scaledTol = baseTol * (10.0f + geomScale + expected.norm()) * scale;
-            // Here, we assume evaluateDerivativeWithConfidence uses adaptive tolerance internally,
-            // but for this sweep, we only change the tolerance used for test/inspection.
-            auto [d, conf] = c.evaluateDerivativeWithConfidence(t);
-            float absErr = (d - expected).norm();
-            float relErr = absErr / std::max(expected.norm(), 1e-8f);
-            std::cout << "→ " << name
-                      << "  scale=" << scale
-                      << "  absErr=" << absErr
-                      << "  relErr=" << relErr
-                      << "  conf=" << conf
-                      << "  scaledTol=" << scaledTol
-                      << std::endl;
+    // table header (plain, like the rest of the tests)
+    std::cout << "| " << std::setw(12) << std::left << "Curve"
+              << " | " << std::setw(10) << "δt"
+              << " | " << std::setw(14) << "absErr"
+              << " | " << std::setw(14) << "relErr"
+              << " | " << std::setw(10) << "conf"
+              << " |\n";
+    std::cout << "|" << std::string(12 + 3 + 10 + 3 + 14 + 3 + 14 + 3 + 10 + 3, '-') << "|\n";
+
+    for (const auto& cdef : curves) {
+        Curve2 c(cdef.fn, 0.0f, 1.0f);
+        Eigen::Vector2f dExact = cdef.exact(t0);
+
+        for (float dt : deltas) {
+            // Evaluate derivative with confidence at t0 + dt only,
+            // compare directly to the exact value at t0.
+            auto [dApprox, conf] = c.evaluateDerivativeWithConfidence(t0 + dt);
+            float absErr = (dApprox - dExact).norm();
+            float relErr = absErr / std::max(dExact.norm(), 1e-8f);
+            std::cout << "| " << std::setw(12) << std::left << cdef.name
+                      << " | " << std::setw(10) << std::scientific << std::setprecision(3) << dt
+                      << " | " << std::setw(14) << std::scientific << std::setprecision(6) << absErr
+                      << " | " << std::setw(14) << std::scientific << std::setprecision(6) << relErr
+                      << " | " << std::setw(10) << std::scientific << std::setprecision(6) << conf
+                      << " |\n" << std::defaultfloat;
         }
     }
+
+    std::cout << std::endl;
 }
 
 // Correlation between curvature and confidence for representative curves
 inline void testCurveDerivativeCurvatureCorrelation() {
     std::cout << "\n∿ Curve Derivative Curvature–Confidence Correlation\n";
+    std::cout << "   This diagnostic test examines how numerical confidence in first-derivative\n";
+    std::cout << "   estimation correlates with local geometric curvature across representative\n";
+    std::cout << "   curves. For each curve, samples at multiple parameter values (t) are used to\n";
+    std::cout << "   compute:\n";
+    std::cout << "     - curvature κ = |x'y'' − y'x''| / (x'^2 + y'^2)^(3/2)\n";
+    std::cout << "     - confidence from evaluateDerivativeWithConfidence(t)\n";
+    std::cout << "     - stability metric = conf / κ (confidence per unit curvature)\n";
+    std::cout << "   This helps assess how robust confidence tracking remains as local curvature\n";
+    std::cout << "   increases. Higher curvature should generally reduce confidence, while a stable\n";
+    std::cout << "   tolerance model should produce consistent efficiency across curves.\n\n";
 
     using Point2 = Euclid::Geometry::Point<float, 2>;
     using Curve2 = Euclid::Geometry::Curve<float, 2>;
     float eps = 1e-4f;
-    constexpr float kappaFloor = 1e-4f; // clamp to avoid division by ~0 in efficiency metrics
+    constexpr float kappaFloor = 1e-4f;
+
     std::vector<std::pair<std::string, std::function<Point2(float)>>> funcs = {
         {"Linear",    [](float t){ return Point2{t, t}; }},
         {"Quadratic", [](float t){ return Point2{t, t*t}; }},
         {"Sinusoidal",[](float t){ return Point2{t, std::sin(2.0f * float(M_PI) * t)}; }},
-        {"Torus-like", [](float t){
+        {"Torus-like",[](float t){
+            float θ = 8.0f*M_PI*t, φ = 12.0f*M_PI*t;
             return Point2{
-                static_cast<float>(std::cos(8.0f*M_PI*t) * (2.0f + 0.5f*std::cos(12.0f*M_PI*t))),
-                static_cast<float>(std::sin(8.0f*M_PI*t) * (2.0f + 0.5f*std::cos(12.0f*M_PI*t)))
+                (2.0f + 0.5f*std::cos(φ)) * std::cos(θ),
+                (2.0f + 0.5f*std::cos(φ)) * std::sin(θ)
             };
         }},
     };
+
     std::vector<float> tSamples = {0.1f, 0.3f, 0.5f, 0.7f, 0.9f};
-    // Vector to store (name, meanEfficiency)
+
+    // Print per-sample header
+    std::cout << "| " << std::setw(10) << std::left << "Curve"
+              << " | " << std::setw(6) << "t"
+              << " | " << std::setw(12) << "Curvature"
+              << " | " << std::setw(10) << "Conf"
+              << " | " << std::setw(12) << "Stability"
+              << " |\n";
+    std::cout << "|" << std::string(10 + 3 + 6 + 3 + 12 + 3 + 10 + 3 + 12 + 3, '-') << "|\n";
+
     std::vector<std::pair<std::string, float>> meanEfficiencies;
     std::vector<std::pair<std::string, float>> meanConfVec;
+
     for (auto& [name, func] : funcs) {
         Curve2 c(func, 0.0f, 1.0f);
-        float effSum = 0.0f;
-        int effCount = 0;
+        float effSum = 0.0f, confSum = 0.0f;
+        int count = 0;
+
         for (float t : tSamples) {
-            // First derivative (x', y')
             auto [d, conf] = c.evaluateDerivativeWithConfidence(t);
-            // Second derivative (x'', y'') via finite difference
+
+            // Second derivative (central difference)
             Eigen::Vector2f d_left = c.evaluateDerivative(std::max(0.0f, t - eps));
             Eigen::Vector2f d_right = c.evaluateDerivative(std::min(1.0f, t + eps));
             Eigen::Vector2f d2 = (d_right - d_left) / (2.0f * eps);
+
             float xp = d[0], yp = d[1];
             float xpp = d2[0], ypp = d2[1];
             float denom = std::pow(xp * xp + yp * yp, 1.5f);
             float curvature = denom > 1e-12f ? std::abs(xp * ypp - yp * xpp) / denom : 0.0f;
             float stability = (curvature > 1e-6f) ? conf / curvature : 0.0f;
-            std::cout << "→ " << name
-                      << "  t=" << t
-                      << "  curvature=" << curvature
-                      << "  conf=" << conf
-                      << "  stability=" << stability
-                      << std::endl;
-            // Efficiency: conf / max(curvature, kappaFloor)
+
+            std::cout << std::scientific << std::setprecision(6)
+                      << "| " << std::setw(10) << std::left << name
+                      << " | " << std::setw(6) << t
+                      << " | " << std::setw(12) << curvature
+                      << " | " << std::setw(10) << conf
+                      << " | " << std::setw(12) << stability
+                      << " |\n";
+
             effSum  += (conf / std::max(curvature, kappaFloor));
-            effCount += 1;
-            // Track confidence for normalization
-            // (we'll divide mean efficiency by mean confidence to get the normalized index)
+            confSum += conf;
+            count++;
         }
-        float meanEfficiency = (effCount > 0) ? (effSum / effCount) : 0.0f;
-        // Compute mean confidence across samples for this curve
-        // We need the per-sample confidences; recompute lightweight mean here
-        // (reuse tSamples to avoid storing all individual values)
-        float confSum = 0.0f;
-        for (float t2 : tSamples) {
-            {
-                auto res = c.evaluateDerivativeWithConfidence(t2);
-                float conf2 = res.second;
-                confSum += conf2;
-            }
-        }
-        float meanConf = confSum / static_cast<float>(tSamples.size());
-        meanEfficiencies.emplace_back(name, meanEfficiency);
+
+        float meanEff = (count > 0) ? effSum / count : 0.0f;
+        float meanConf = (count > 0) ? confSum / count : 0.0f;
+        meanEfficiencies.emplace_back(name, meanEff);
         meanConfVec.emplace_back(name, meanConf);
     }
-    // Print summary table
-    std::cout << "⇢ Mean Efficiency Summary:\n";
+
+    // Summary section
+    std::cout << "\n⇢ Mean Efficiency Summary (mean(conf/κ)):\n";
+    std::cout << "| " << std::setw(12) << std::left << "Curve"
+              << " | " << std::setw(12) << "Mean Efficiency"
+              << " |\n";
+    std::cout << "|" << std::string(12 + 3 + 12 + 3, '-') << "|\n";
     for (const auto& [name, meanEff] : meanEfficiencies) {
-        // Align name to width 11, value to 8 decimals
-        std::cout << "   " << std::left << std::setw(11) << name
-                  << std::right << std::fixed << std::setprecision(5)
-                  << meanEff << std::endl;
+        std::cout << "| " << std::setw(12) << std::left << name
+                  << " | " << std::setw(12) << std::right << std::fixed << std::setprecision(5)
+                  << std::min(meanEff, 9999.99999f)
+                  << " |\n";
     }
-    // Compute and print normalized efficiency = mean(conf/kappa) / mean(conf)
-    std::cout << "⇢ Normalized Efficiency (mean(conf/κ) / mean(conf)):\n";
-    // Build a lookup for mean confidences
-    auto findMeanConf = [&](const std::string& key) {
-        for (const auto& kv : meanConfVec) {
-            if (kv.first == key) return kv.second;
-        }
-        return 0.0f;
-    };
-    for (const auto& [name, meanEff] : meanEfficiencies) {
-        float meanConf = findMeanConf(name);
-        float normalized = (meanConf > 0.0f) ? (meanEff / meanConf) : 0.0f;
-        std::cout << "   " << std::left << std::setw(11) << name
-                  << std::right << std::fixed << std::setprecision(5)
-                  << normalized << std::endl;
+
+    std::cout << "\n⇢ Normalized Efficiency (mean(conf/κ) / mean(conf)):\n";
+    std::cout << "| " << std::setw(12) << std::left << "Curve"
+              << " | " << std::setw(12) << "Normalized"
+              << " |\n";
+    std::cout << "|" << std::string(12 + 3 + 12 + 3, '-') << "|\n";
+    for (size_t i = 0; i < meanEfficiencies.size(); ++i) {
+        const auto& [name, meanEff] = meanEfficiencies[i];
+        float meanConf = meanConfVec[i].second;
+        float normalized = (meanConf > 0.0f) ? meanEff / meanConf : 0.0f;
+        std::cout << "| " << std::setw(12) << std::left << name
+                  << " | " << std::setw(12) << std::right << std::fixed << std::setprecision(5)
+                  << std::min(normalized, 9999.99999f)
+                  << " |\n";
     }
+
+    std::cout << std::endl;
 }
 
+// Test evaluateTangent() for representative curves
+inline void testCurveTangent() {
+    std::cout << "\n∿ Testing Curve Tangent (Adaptive Tolerance)\n";
+
+    Euclid::Tolerance tol;
+    using Point2 = Euclid::Geometry::Point<float, 2>;
+    using Curve2 = Euclid::Geometry::Curve<float, 2>;
+    using Point3 = Euclid::Geometry::Point<float, 3>;
+    using Curve3 = Euclid::Geometry::Curve<float, 3>;
+
+    // --- Linear Curve: (t, t), t in [0,1] ---
+    Curve2 linear = Curve2::linearCurve(Point2{0.0f, 0.0f}, Point2{1.0f, 1.0f});
+    float tLin = 0.5f;
+    Eigen::Vector2f expectedLin(1.0f, 1.0f);
+    expectedLin.normalize();
+    Eigen::Vector2f computedLin = linear.evaluateTangent(tLin);
+    float diffLin = (computedLin - expectedLin).norm();
+    float tolLin = tol.evaluateEpsilon(1.0f) * 10.0f;
+    std::cout << "[DEBUG] Linear: expected=" << expectedLin.transpose()
+              << ", computed=" << computedLin.transpose()
+              << ", diff=" << diffLin
+              << ", tol=" << tolLin << std::endl;
+    printTest("Linear curve tangent", diffLin <= 3.0f * tolLin);
+
+    // --- Circular Curve: x=cos(2πt), y=sin(2πt), t in [0,1] ---
+    float tCirc = 0.25f;
+    auto circularFunc = [](float t) -> Point2 {
+        return Point2{std::cos(2.0f * float(M_PI) * t), std::sin(2.0f * float(M_PI) * t)};
+    };
+    Curve2 circular(circularFunc, 0.0f, 1.0f);
+    Eigen::Vector2f expectedCirc(-std::sin(2.0f * float(M_PI) * tCirc),
+                                 std::cos(2.0f * float(M_PI) * tCirc));
+    expectedCirc.normalize();
+    Eigen::Vector2f computedCirc = circular.evaluateTangent(tCirc);
+    float diffCirc = (computedCirc - expectedCirc).norm();
+    float tolCirc = tol.evaluateEpsilon(1.0f) * 10.0f;
+    std::cout << "[DEBUG] Circular: expected=" << expectedCirc.transpose()
+              << ", computed=" << computedCirc.transpose()
+              << ", diff=" << diffCirc
+              << ", tol=" << tolCirc << std::endl;
+    printTest("Circular curve tangent", diffCirc <= 5.0f * tolCirc);
+
+    // --- Helix Curve: x=cos(2πt), y=sin(2πt), z=t, t in [0,1] ---
+    float tHelix = 0.25f;
+    auto helixFunc = [](float t) -> Point3 {
+        return Point3{static_cast<float>(std::cos(2*M_PI*t)),
+                      static_cast<float>(std::sin(2*M_PI*t)),
+                      t};
+    };
+    Curve3 helix(helixFunc, 0.0f, 1.0f);
+    Eigen::Vector3f expectedHelix(-2*M_PI*std::sin(2*M_PI*tHelix),
+                                   2*M_PI*std::cos(2*M_PI*tHelix),
+                                   1.0f);
+    expectedHelix.normalize();
+    Eigen::Vector3f computedHelix = helix.evaluateTangent(tHelix);
+    float diffHelix = (computedHelix - expectedHelix).norm();
+    float tolHelix = tol.evaluateEpsilon(1.0f) * 10.0f;
+    std::cout << "[DEBUG] Helix: expected=" << expectedHelix.transpose()
+              << ", computed=" << computedHelix.transpose()
+              << ", diff=" << diffHelix
+              << ", tol=" << tolHelix << std::endl;
+    printTest("Helix curve tangent", diffHelix <= 5.0f * tolHelix);
+}
+
+// Test curve subdivision: verifies continuity and endpoint consistency
+inline void testCurveSubdivide() {
+    std::cout << "\n∿ Testing Curve Subdivision\n";
+
+    using Point2 = Euclid::Geometry::Point<float, 2>;
+    using Curve2 = Euclid::Geometry::Curve<float, 2>;
+    using Point3 = Euclid::Geometry::Point<float, 3>;
+    using Curve3 = Euclid::Geometry::Curve<float, 3>;
+
+    // Simple quadratic curve (t, t^2)
+    auto func = [](float t) -> Point2 { return Point2{t, t * t}; };
+    Curve2 c(func, 0.0f, 1.0f);
+
+    // Subdivide at midpoint
+    auto [left, right] = c.subDivide(0.5f);
+
+    // Evaluate continuity and consistency
+    auto pLeftEnd = left.evaluate(1.0f);
+    auto pRightStart = right.evaluate(0.0f);
+    auto pMid = c.evaluate(0.5f);
+    auto pStart = c.evaluate(0.0f);
+    auto pEnd = c.evaluate(1.0f);
+
+    std::cout << "[DEBUG] Midpoint continuity check:\n"
+              << "   original mid = " << pMid.coords.transpose() << "\n"
+              << "   left end     = " << pLeftEnd.coords.transpose() << "\n"
+              << "   right start  = " << pRightStart.coords.transpose() << std::endl;
+
+    bool continuityOK = (pLeftEnd == pRightStart) && (pMid == pLeftEnd);
+    printTest("Continuity at subdivision point", continuityOK);
+
+    bool startOK = (left.evaluate(0.0f) == pStart);
+    bool endOK   = (right.evaluate(1.0f) == pEnd);
+    printTest("Left start matches original start", startOK);
+    printTest("Right end matches original end", endOK);
+
+    // --- Additional subdivisions at t=0.25 and t=0.75 for (t, t^2) ---
+    float tA = 0.25f;
+    float tB = 0.75f;
+    auto [left25, right25] = c.subDivide(tA);
+    auto [left75, right75] = c.subDivide(tB);
+    auto pA = c.evaluate(tA);
+    auto pB = c.evaluate(tB);
+    auto pLeft25End = left25.evaluate(1.0f);
+    auto pRight25Start = right25.evaluate(0.0f);
+    auto pLeft75End = left75.evaluate(1.0f);
+    auto pRight75Start = right75.evaluate(0.0f);
+    std::cout << "[DEBUG] Subdivision at t=0.25:\n"
+              << "   original = " << pA.coords.transpose() << "\n"
+              << "   left end = " << pLeft25End.coords.transpose() << "\n"
+              << "   right start = " << pRight25Start.coords.transpose() << std::endl;
+    bool cont25 = (pLeft25End == pRight25Start) && (pA == pLeft25End);
+    printTest("Continuity at t=0.25", cont25);
+    std::cout << "[DEBUG] Subdivision at t=0.75:\n"
+              << "   original = " << pB.coords.transpose() << "\n"
+              << "   left end = " << pLeft75End.coords.transpose() << "\n"
+              << "   right start = " << pRight75Start.coords.transpose() << std::endl;
+    bool cont75 = (pLeft75End == pRight75Start) && (pB == pLeft75End);
+    printTest("Continuity at t=0.75", cont75);
+
+    // --- 3D nonlinear curve (t, t^2, t^3) subdivision test ---
+    auto func3D = [](float t) -> Point3 { return Point3{t, t*t, t*t*t}; };
+    Curve3 c3(func3D, 0.0f, 1.0f);
+    float tMid = 0.5f;
+    auto [left3, right3] = c3.subDivide(tMid);
+    auto p3OrigMid = c3.evaluate(tMid);
+    auto p3LeftEnd = left3.evaluate(1.0f);
+    auto p3RightStart = right3.evaluate(0.0f);
+    std::cout << "[DEBUG] 3D curve subdivision at t=0.5:\n"
+              << "   original mid = " << p3OrigMid.coords.transpose() << "\n"
+              << "   left end     = " << p3LeftEnd.coords.transpose() << "\n"
+              << "   right start  = " << p3RightStart.coords.transpose() << std::endl;
+    bool cont3D = p3LeftEnd.coords.isApprox(p3RightStart.coords, 1e-5f) &&
+                  p3OrigMid.coords.isApprox(p3LeftEnd.coords, 1e-5f);
+    printTest("3D curve midpoint continuity (isApprox)", cont3D);
+
+    // --- 4D nonlinear curve (t, t^2, t^3, sin(2πt)) subdivision test ---
+    using Point4 = Point<float, 4>;
+    using Curve4 = Curve<float, 4>;
+    auto func4D = [](float t) -> Point4 {
+        return Point4{t, t*t, t*t*t, std::sin(2.0f * float(M_PI) * t)};
+    };
+    Curve4 c4(func4D, 0.0f, 1.0f);
+    auto [left4, right4] = c4.subDivide(0.5f);
+    auto p4OrigMid = c4.evaluate(0.5f);
+    auto p4LeftEnd = left4.evaluate(1.0f);
+    auto p4RightStart = right4.evaluate(0.0f);
+    std::cout << "[DEBUG] 4D curve subdivision at t=0.5:\n"
+              << "   original mid = " << p4OrigMid.coords.transpose() << "\n"
+              << "   left end     = " << p4LeftEnd.coords.transpose() << "\n"
+              << "   right start  = " << p4RightStart.coords.transpose() << std::endl;
+    bool cont4D = p4LeftEnd.coords.isApprox(p4RightStart.coords, 1e-5f) &&
+                  p4OrigMid.coords.isApprox(p4LeftEnd.coords, 1e-5f);
+    printTest("4D curve midpoint continuity (isApprox)", cont4D);
+
+    // --- 5D nonlinear curve (t, t^2, t^3, sin(2πt), cos(2πt)) subdivision test ---
+    using Point5 = Point<float, 5>;
+    using Curve5 = Curve<float, 5>;
+    auto func5D = [](float t) -> Point5 {
+        return Point5{t, t*t, t*t*t,
+                      std::sin(2.0f * float(M_PI) * t),
+                      std::cos(2.0f * float(M_PI) * t)};
+    };
+    Curve5 c5(func5D, 0.0f, 1.0f);
+    auto [left5, right5] = c5.subDivide(0.5f);
+    auto p5OrigMid = c5.evaluate(0.5f);
+    auto p5LeftEnd = left5.evaluate(1.0f);
+    auto p5RightStart = right5.evaluate(0.0f);
+    std::cout << "[DEBUG] 5D curve subdivision at t=0.5:\n"
+              << "   original mid = " << p5OrigMid.coords.transpose() << "\n"
+              << "   left end     = " << p5LeftEnd.coords.transpose() << "\n"
+              << "   right start  = " << p5RightStart.coords.transpose() << std::endl;
+    bool cont5D = p5LeftEnd.coords.isApprox(p5RightStart.coords, 1e-5f) &&
+                  p5OrigMid.coords.isApprox(p5LeftEnd.coords, 1e-5f);
+    printTest("5D curve midpoint continuity (isApprox)", cont5D);
+}
+
+// Test curve bounding box computation (adaptive sampling)
+inline void testCurveBoundingBox() {
+    std::cout << "\n∿ Testing Curve Bounding Box (Adaptive)\n";
+
+    using Point2 = Euclid::Geometry::Point<float, 2>;
+    using Curve2 = Euclid::Geometry::Curve<float, 2>;
+    using Point3 = Euclid::Geometry::Point<float, 3>;
+    using Curve3 = Euclid::Geometry::Curve<float, 3>;
+
+    // --- Linear Curve: (0,0) → (1,1) ---
+    Curve2 linear = Curve2::linearCurve(Point2{0.0f, 0.0f}, Point2{1.0f, 1.0f});
+    auto [minL, maxL] = linear.boundingBox();
+    std::cout << "[DEBUG] Linear bounding box: min=" << minL.coords.transpose()
+              << " max=" << maxL.coords.transpose() << std::endl;
+    printTest("Linear bounding box", minL == Point2{0.0f, 0.0f} && maxL == Point2{1.0f, 1.0f});
+
+    // --- Quadratic Curve: (t, t^2), t ∈ [0,1] ---
+    auto quadraticFunc = [](float t) -> Point2 { return Point2{t, t*t}; };
+    Curve2 quadratic(quadraticFunc, 0.0f, 1.0f);
+    auto [minQ, maxQ] = quadratic.boundingBox();
+    std::cout << "[DEBUG] Quadratic bounding box: min=" << minQ.coords.transpose()
+              << " max=" << maxQ.coords.transpose() << std::endl;
+    bool quadOK = (minQ.coords - Eigen::Vector2f(0.0f, 0.0f)).norm() < 1e-4f &&
+                  (maxQ.coords - Eigen::Vector2f(1.0f, 1.0f)).norm() < 1e-4f;
+    printTest("Quadratic bounding box (min≈0,0 max≈1,1)", quadOK);
+
+    // --- Cubic Curve: (t, t^3 - 3t^2 + 2t), t ∈ [0,1] ---
+    auto cubicFunc = [](float t) -> Point2 { return Point2{t, t*t*t - 3*t*t + 2*t}; };
+    Curve2 cubic(cubicFunc, 0.0f, 1.0f);
+    auto [minCub, maxCub] = cubic.boundingBox();
+    std::cout << "[DEBUG] Cubic bounding box: min=" << minCub.coords.transpose()
+              << " max=" << maxCub.coords.transpose() << std::endl;
+    // The y minimum occurs at t=1, y=0; y maximum at t=0, y=0. So range is [0,0] to [1,0]
+    // But the cubic has a bump: check that min/max cover the correct range
+    float yMin = std::min({cubic.evaluate(0.0f).coords[1], cubic.evaluate(1.0f).coords[1], cubic.evaluate(2.0f/3.0f).coords[1]});
+    float yMax = std::max({cubic.evaluate(0.0f).coords[1], cubic.evaluate(1.0f).coords[1], cubic.evaluate(2.0f/3.0f).coords[1]});
+    bool cubicOK = std::abs(minCub.coords[0] - 0.0f) < 1e-4f &&
+                   std::abs(maxCub.coords[0] - 1.0f) < 1e-4f &&
+                   minCub.coords[1] <= yMin + 1e-4f &&
+                   maxCub.coords[1] >= yMax - 1e-4f;
+    printTest("Cubic bounding box (covers full range)", cubicOK);
+
+    // --- 3D Helix: (cos(2πt), sin(2πt), t), t ∈ [0,1] ---
+    auto helixFunc = [](float t) -> Point3 {
+        return Point3{static_cast<float>(std::cos(2*M_PI*t)), static_cast<float>(std::sin(2*M_PI*t)), t};
+    };
+    Curve3 helix(helixFunc, 0.0f, 1.0f);
+    auto [minH, maxH] = helix.boundingBox();
+    std::cout << "[DEBUG] Helix bounding box: min=" << minH.coords.transpose()
+              << " max=" << maxH.coords.transpose() << std::endl;
+    bool helixOK = std::abs(minH.coords[2] - 0.0f) < 1e-4f &&
+                   std::abs(maxH.coords[2] - 1.0f) < 1e-4f;
+    printTest("Helix bounding box (z in [0,1])", helixOK);
+
+    // --- 4D nonlinear curve (t, t^2, t^3, sin(2πt)) bounding box test ---
+    using Point4 = Point<float, 4>;
+    using Curve4 = Curve<float, 4>;
+    auto func4D = [](float t) -> Point4 {
+        return Point4{t, t*t, t*t*t, std::sin(2.0f * float(M_PI) * t)};
+    };
+    Curve4 c4(func4D, 0.0f, 1.0f);
+    auto [min4, max4] = c4.boundingBox();
+    std::cout << "[DEBUG] 4D bounding box: min=" << min4.coords.transpose()
+              << " max=" << max4.coords.transpose() << std::endl;
+    bool b4 =
+        min4.coords[0] >= 0.0f - 1e-4f && max4.coords[0] <= 1.0f + 1e-4f &&
+        min4.coords[1] >= 0.0f - 1e-4f && max4.coords[1] <= 1.0f + 1e-4f &&
+        min4.coords[2] >= 0.0f - 1e-4f && max4.coords[2] <= 1.0f + 1e-4f &&
+        min4.coords[3] <= -1.0f + 0.05f && max4.coords[3] >= 1.0f - 0.05f;
+    printTest("4D bounding box (includes sin range)", b4);
+
+    // --- 5D nonlinear curve (t, t^2, t^3, sin(2πt), cos(2πt)) bounding box test ---
+    using Point5 = Point<float, 5>;
+    using Curve5 = Curve<float, 5>;
+    auto func5D = [](float t) -> Point5 {
+        return Point5{t, t*t, t*t*t,
+                      std::sin(2.0f * float(M_PI) * t),
+                      std::cos(2.0f * float(M_PI) * t)};
+    };
+    Curve5 c5(func5D, 0.0f, 1.0f);
+    auto [min5, max5] = c5.boundingBox();
+    std::cout << "[DEBUG] 5D bounding box: min=" << min5.coords.transpose()
+              << " max=" << max5.coords.transpose() << std::endl;
+    bool b5 =
+        min5.coords[0] >= 0.0f - 1e-4f && max5.coords[0] <= 1.0f + 1e-4f &&
+        min5.coords[1] >= 0.0f - 1e-4f && max5.coords[1] <= 1.0f + 1e-4f &&
+        min5.coords[2] >= 0.0f - 1e-4f && max5.coords[2] <= 1.0f + 1e-4f &&
+        min5.coords[3] <= -1.0f + 0.05f && max5.coords[3] >= 1.0f - 0.05f &&
+        min5.coords[4] <= -1.0f + 0.05f && max5.coords[4] >= 1.0f - 0.05f;
+    printTest("5D bounding box (includes sin/cos range)", b5);
+
+    // --- Circular Curve: x=cos(2πt), y=sin(2πt), t ∈ [0,1] ---
+    auto circularFunc = [](float t) -> Point2 {
+        return Point2{std::cos(2.0f * float(M_PI) * t), std::sin(2.0f * float(M_PI) * t)};
+    };
+    Curve2 circular(circularFunc, 0.0f, 1.0f);
+    auto [minC, maxC] = circular.boundingBox();
+    std::cout << "[DEBUG] Circular bounding box: min=" << minC.coords.transpose()
+              << " max=" << maxC.coords.transpose() << std::endl;
+    bool circOK = std::abs(minC.coords[0] + 1.0f) < 0.05f &&
+                  std::abs(maxC.coords[0] - 1.0f) < 0.05f &&
+                  std::abs(minC.coords[1] + 1.0f) < 0.05f &&
+                  std::abs(maxC.coords[1] - 1.0f) < 0.05f;
+    printTest("Circular bounding box (approx unit circle)", circOK);
+
+    // --- Sinusoidal Curve: (t, sin(2πt)), t ∈ [0,1] ---
+    auto sinusoidalFunc = [](float t) -> Point2 {
+        return Point2{t, std::sin(2.0f * float(M_PI) * t)};
+    };
+    Curve2 sinusoidal(sinusoidalFunc, 0.0f, 1.0f);
+    auto [minS, maxS] = sinusoidal.boundingBox();
+    std::cout << "[DEBUG] Sinusoidal bounding box: min=" << minS.coords.transpose()
+              << " max=" << maxS.coords.transpose() << std::endl;
+    bool sineOK = std::abs(minS.coords[1] + 1.0f) < 0.05f &&
+                  std::abs(maxS.coords[1] - 1.0f) < 0.05f;
+    printTest("Sinusoidal bounding box (approx ±1 in y)", sineOK);
+}
 
 
 inline void testCurve() {
@@ -875,20 +1395,30 @@ inline void testCurve() {
     printTest("Nonlinear 5D t=0.5", curve5.evaluate(0.5f) == Point<float,5>{-0.5f, 0.5f*float(M_PI), 0.25f, 0.125f, std::sqrt(1.5f)});
     printTest("Nonlinear 5D t=1.5", curve5.evaluate(1.5f) == Point<float,5>{-1.5f, 1.5f*float(M_PI), 2.25f, 3.375f, std::sqrt(2.5f)});
 
-
-    // Run derivative test suite
+    // Run first derivative test suite
     testCurveDerivative();
-    testCurveDerivativeResolution();
-    testCurveDerivativeResolutionSweep();
+    testCurveSecondDerivative();
+    testCurveDerivativeAccuracy();
+    testCurveDerivativeParametricStepSensitivity();
     testCurveDerivativeCurvatureCorrelation();
+     
+    // Run second derivative test suite
+    testCurveSecondDerivative();
+    testCurveSecondDerivativeAccuracy();
     
     // Run integral test suite
     testCurveIntegral();
-    testCurveIntegralResolutionSweep();
 
     // Run curvature test suite
     testCurveCurvature();
+
+    testCurveTangent();
+    testCurveSubdivide();
+    testCurveBoundingBox();
     
+    
+
     
 }
+
 

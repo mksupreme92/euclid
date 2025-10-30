@@ -236,211 +236,177 @@ public:
         return VecS::Zero();
     }
 
-    // Overload: returns both derivative and confidence metric (0 = low, 1 = high)
-    std::pair<Eigen::Matrix<Scalar, Dim, 1>, Scalar> evaluateDerivativeWithConfidence(Scalar t) const {
+    // Evaluate the second derivative of the curve at parameter t (consistent with evaluateDerivative)
+    Eigen::Matrix<Scalar, Dim, 1> evaluateSecondDerivative(Scalar t) const {
         using VecS = Eigen::Matrix<Scalar, Dim, 1>;
         using VecD = Eigen::Matrix<double, Dim, 1>;
-        Tolerance tol; // default tolerance model
+        Tolerance tol;
 
         auto evalD = [&](double tt) -> VecD {
             return curveFunc_(static_cast<Scalar>(tt)).coords.template cast<double>();
         };
 
-        // Geometry-informed scale for tolerance model
+        const Scalar t0 = domain_.first;
+        const Scalar t1 = domain_.second;
+        const Scalar span = std::max(Scalar(1e-9), t1 - t0);
+        const Scalar epsMach = std::numeric_limits<Scalar>::epsilon();
+
+        // Compute adaptive step similar to evaluateDerivative
         const VecD pt = evalD(static_cast<double>(t));
         const Scalar geomScale = static_cast<Scalar>(pt.norm());
         const Scalar slopeEstimate = std::max(Scalar(1e-6), Scalar(geomScale + pt.cwiseAbs().sum()));
+        const Scalar hTol = tol.evaluateEpsilon(std::max(slopeEstimate, Scalar(1)));
+        const Scalar hCbrt = Scalar(std::cbrt(static_cast<double>(epsMach))) * std::max(span, Scalar(1));
+        Scalar hStart = std::max(hTol, hCbrt);
+        hStart = std::clamp(hStart, span * Scalar(1e-6), span * Scalar(1e-2));
 
-        // Domain and parameter-step safety
-        const Scalar t0 = domain_.first;
-        const Scalar t1 = domain_.second;
-        const Scalar span = std::max(Scalar(0), t1 - t0);
-
-        const Scalar epsMach = std::numeric_limits<Scalar>::epsilon();
-        const Scalar hTol    = tol.evaluateEpsilon(std::max(slopeEstimate, Scalar(1)));
-        const Scalar hUlp    = std::max(epsMach * (Scalar(1) + std::abs(t)), epsMach);
-        const Scalar hDom    = std::max(span * Scalar(1e-6), epsMach);
-
-        // Use a cube-root-of-eps heuristic for central differences:
-        // For smooth functions the optimal step is ~ cbrt(eps) * scale.
-        const Scalar hCbrt   = Scalar(std::cbrt(static_cast<double>(epsMach))) * std::max(span, Scalar(1));
-
-        // Start with the most conservative among tolerance-, ulp-, domain- and cbrt-based steps.
-        Scalar h0 = std::max(std::max(hTol, hUlp), std::max(hDom, hCbrt));
-
-        // Keep step safely inside the domain while allowing larger steps when beneficial.
-        const Scalar hMax = std::max(span * Scalar(0.25), epsMach);
-        h0 = std::min(h0, hMax);
-
-        // Ridders' parameters
-        constexpr int MAX_IT = 30;
-
-        auto safeCentral = [&](Scalar step) -> std::optional<VecD> {
-            Scalar tf = std::min(t + step, t1);
-            Scalar tb = std::max(t - step, t0);
-            Scalar denom = tf - tb;
-            if (!(denom > Scalar(0))) {
-                Scalar nud = std::max<Scalar>(hUlp * Scalar(4), tol.evaluateEpsilon(span));
-                tf = std::min(t + nud, t1);
-                tb = std::max(t - nud, t0);
-                denom = tf - tb;
-                if (!(denom > Scalar(0))) return std::nullopt;
-            }
-            const VecD fwd = evalD(static_cast<double>(tf));
-            const VecD bwd = evalD(static_cast<double>(tb));
-            VecD g = (fwd - bwd) / static_cast<double>(denom);
-            if (!g.allFinite()) return std::nullopt;
-            return g;
+        auto safeEval = [&](Scalar tVal) -> VecD {
+            Scalar tc = std::clamp(tVal, t0, t1);
+            return evalD(static_cast<double>(tc));
         };
 
-        const Scalar convTol = tol.evaluateEpsilon(std::max<Scalar>(slopeEstimate, Scalar(1))) * std::clamp(Scalar(10) * (Scalar(1) + Scalar(0.1) * std::min(Scalar(1e3), Scalar(1) / std::max(Scalar(1e-6), geomScale / (slopeEstimate * span)))), Scalar(10), Scalar(100));
+        constexpr int MAX_IT = 20;
+        VecD best = VecD::Zero();
+        double bestErr = std::numeric_limits<double>::infinity();
 
-        VecD globalBest = VecD::Zero();
-        double globalBestErr = std::numeric_limits<double>::infinity();
-        bool haveGlobalBest = false;
+        for (int i = 0; i < MAX_IT; ++i) {
+            Scalar hi = hStart / std::pow(2.0, i);
+            Scalar tp = std::min(t + hi, t1);
+            Scalar tm = std::max(t - hi, t0);
 
-        Scalar hStart = h0;
+            VecD fp = safeEval(tp);
+            VecD fm = safeEval(tm);
+            VecD f0 = safeEval(t);
 
-        for (int r = 0; r < 3; ++r) {
-            VecD D[MAX_IT][MAX_IT];
-            bool haveBest = false;
-            VecD best = VecD::Zero();
-            double bestErr = std::numeric_limits<double>::infinity();
+            VecD g2 = (fp - 2.0 * f0 + fm) / (hi * hi);
 
-            int growthCount = 0;
-            double lastDiagErr = std::numeric_limits<double>::infinity();
-
-            for (int i = 0; i < MAX_IT; ++i) {
-                Scalar hi = hStart / std::pow(Scalar(2), i);
-                auto g0 = safeCentral(hi);
-                if (!g0.has_value()) break;
-                D[i][0] = *g0;
-
-                for (int k = 1; k <= i; ++k) {
-                    const double fac = std::pow(4.0, k);
-                    VecD num = fac * D[i][k - 1] - D[i - 1][k - 1];
-                    const double den = fac - 1.0;
-                    D[i][k] = num / den;
-                    if (!D[i][k].allFinite()) {
-                        D[i][k] = D[i][k - 1];
-                    }
+            if (i > 0) {
+                VecD diff = g2 - best;
+                double err = diff.norm();
+                if (err < bestErr && g2.allFinite()) {
+                    bestErr = err;
+                    best = g2;
                 }
-
-                if (i > 0) {
-                    VecD diff = D[i][i] - D[i - 1][i - 1];
-                    double err = diff.norm();
-
-                    if (err < bestErr && D[i][i].allFinite()) {
-                        bestErr = err;
-                        best = D[i][i];
-                        haveBest = true;
-                    }
-
-                    const double relScale = 1.0 + D[i][i].norm();
-                    if (err <= static_cast<double>(convTol) * relScale) {
-                        globalBestErr = err;
-                        globalBest = best;
-                        haveGlobalBest = true;
-                        break;
-                    }
-
-                    if (err >= lastDiagErr * 0.9) {
-                        ++growthCount;
-                    } else {
-                        growthCount = 0;
-                    }
-                    lastDiagErr = err;
-
-                    if (growthCount >= 2) {
-                        break;
-                    }
-                } else {
-                    if (D[i][0].allFinite()) {
-                        best = D[i][0];
-                        bestErr = std::numeric_limits<double>::infinity();
-                        haveBest = true;
-                    }
-                }
+                if (err < tol.evaluateEpsilon(span)) break;
+            } else {
+                best = g2;
             }
-
-            if (haveBest && bestErr < globalBestErr) {
-                globalBestErr = bestErr;
-                globalBest = best;
-                haveGlobalBest = true;
-            }
-
-            // Adaptive damping: reduce h proportionally to slope magnitude for smoother refinement
-            hStart = std::max<Scalar>(hUlp * Scalar(8), hStart / (Scalar(1) + slopeEstimate));
         }
 
-        VecS derivative;
-        if (haveGlobalBest)
-            derivative = globalBest.template cast<Scalar>().eval();
-        else
-            derivative = VecS::Zero();
-        const Scalar confidence = Scalar(1) - std::min<Scalar>(Scalar(1), static_cast<Scalar>(globalBestErr) / convTol);
-        return {derivative, confidence};
+        if (!best.allFinite()) return VecS::Zero();
+        return best.template cast<Scalar>();
+    }
+
+    // Evaluate the normalized tangent vector at parameter t
+    Eigen::Matrix<Scalar, Dim, 1> evaluateTangent(Scalar t) const {
+        using VecS = Eigen::Matrix<Scalar, Dim, 1>;
+        Tolerance tol; // use the default adaptive tolerance model
+
+        VecS v = evaluateDerivative(t);
+        Scalar n = v.norm();
+
+        // Avoid division by zero or subnormal magnitudes
+        if (n < tol.paramTol) {
+            return VecS::Zero();
+        }
+
+        return v / n;
+    }
+
+    // Overload: returns both derivative and confidence metric (0 = low, 1 = high)
+    std::pair<Eigen::Matrix<Scalar, Dim, 1>, Scalar> evaluateDerivativeWithConfidence(Scalar t) const {
+        using VecS = Eigen::Matrix<Scalar, Dim, 1>;
+        Tolerance tol;
+
+        // 1) Get our best derivative once (expensive Ridders path)
+        VecS d0 = evaluateDerivative(t);
+        const Scalar d0norm = d0.norm();
+
+        // 2) Do two *cheap* directional checks using a small param perturbation, but
+        //    compute derivatives via a *single-step central difference* rather than
+        //    calling the full adaptive evaluator again. This preserves the intent of the
+        //    confidence metric while avoiding 2 extra Ridders runs.
+        const Scalar t0 = domain_.first;
+        const Scalar t1 = domain_.second;
+        const Scalar span = std::max(Scalar(1e-9), t1 - t0);
+        const Scalar epsMach = std::numeric_limits<Scalar>::epsilon();
+        // base perturbation tied to tolerance and span
+        const Scalar baseDelta = std::max(Scalar(tol.paramTol), std::cbrt(epsMach) * span);
+        const Scalar delta = std::min(baseDelta, span * Scalar(1e-3));
+
+        auto cheapDerivative = [&](Scalar tc) -> VecS {
+            // clamp inside domain
+            const Scalar tp = std::min(tc + delta, t1);
+            const Scalar tm = std::max(tc - delta, t0);
+            const Scalar denom = tp - tm;
+            if (denom <= Scalar(0)) {
+                return d0; // fall back to main derivative
+            }
+            // evaluate curve once per side (cheap)
+            const VecS fp = evaluate(tp).coords;
+            const VecS fm = evaluate(tm).coords;
+            return (fp - fm) / denom;
+        };
+
+        VecS dPlus  = cheapDerivative(std::min(t + delta, t1));
+        VecS dMinus = cheapDerivative(std::max(t - delta, t0));
+
+        // 3) Local fluctuation between the two cheap estimates
+        const VecS fluct = (dPlus - dMinus) * Scalar(0.5);
+        const Scalar localErr = fluct.norm();
+
+        // 4) Map to confidence similarly to previous version, but cheaper
+        const Scalar baseTol = tol.evaluateEpsilon(std::max(Scalar(1), d0norm));
+        const Scalar floorTol = std::max(baseTol * Scalar(50), Scalar(1e-6));
+        const Scalar scale = std::max(floorTol, localErr + floorTol);
+        const Scalar ratio = localErr / scale;
+
+        Scalar conf;
+        if (ratio < Scalar(0.5)) {
+            conf = Scalar(1) - ratio * Scalar(0.1);
+        } else if (ratio < Scalar(2)) {
+            conf = Scalar(0.9) - (ratio - Scalar(0.5)) * Scalar(0.3);
+        } else {
+            conf = Scalar(0.3) * std::exp(-ratio * Scalar(0.5));
+        }
+        conf = std::clamp(conf, Scalar(0.05), Scalar(1.0));
+
+        return {d0, conf};
     }
 
     // Compute local curvature at parameter t:
     // κ(t) = ||a_perp|| / ||v||^2, where a_perp = a - ((a·v)/||v||^2) v
     Scalar evaluateCurvature(Scalar t) const {
-        using VecD = Eigen::Matrix<double, Dim, 1>;
+        using VecS = Eigen::Matrix<Scalar, Dim, 1>;
         Tolerance tol;
+
         const Scalar t0 = domain_.first;
         const Scalar t1 = domain_.second;
-        // Clamp t to domain
-        Scalar tc = t;
-        if (tc < t0) tc = t0;
-        if (tc > t1) tc = t1;
+        const Scalar tc = std::clamp(t, t0, t1);
 
-        // --- Use same adaptive step logic as in evaluateDerivative() ---
-        const Scalar epsMach = std::numeric_limits<Scalar>::epsilon();
-        const Scalar span    = std::max(Scalar(1e-12), t1 - t0);
-        auto safeClampToDomain = [&](Scalar tval) -> Scalar {
-            if (tval <= t0) return t0;
-            if (tval >= t1) return t1;
-            return tval;
-        };
-        auto choose_h = [&](Scalar tval) -> Scalar {
-            VecD pd = curveFunc_(tval).coords.template cast<double>();
-            const double geomScale = pd.norm();
-            const double base = std::max(1.0, geomScale + pd.cwiseAbs().sum());
-            const Scalar hTol = tol.evaluateEpsilon(static_cast<Scalar>(base));
-            const Scalar hUlp = std::max(epsMach * (Scalar(1) + std::abs(tval)), epsMach);
-            const Scalar hDom = std::max(span * Scalar(1e-6), epsMach);
-            const Scalar hCbrt = Scalar(std::cbrt(static_cast<double>(epsMach))) * std::max(span, Scalar(1));
-            Scalar h0 = std::max(std::max(hTol, hUlp), std::max(hDom, hCbrt));
-            const Scalar hMax = std::max(span * Scalar(1e-2), epsMach);
-            h0 = std::min(h0, hMax);
-            h0 = std::max(h0, hUlp * Scalar(8));
-            const Scalar toLeft  = tval - t0;
-            const Scalar toRight = t1 - tval;
-            const Scalar hBound  = std::max(std::min(toLeft, toRight), epsMach);
-            return std::min(h0, hBound);
-        };
-        // --- Compute both velocity and acceleration using a single finite-difference block ---
-        Scalar h = choose_h(tc);
-        Scalar tp = safeClampToDomain(tc + h);
-        Scalar tm = safeClampToDomain(tc - h);
-        double denom = std::max(static_cast<double>(tp - tm), static_cast<double>(epsMach));
-        double h2 = std::max(static_cast<double>(h) * static_cast<double>(h), static_cast<double>(epsMach));
-        VecD fp = curveFunc_(tp).coords.template cast<double>();
-        VecD fm = curveFunc_(tm).coords.template cast<double>();
-        VecD f0 = curveFunc_(tc).coords.template cast<double>();
-        VecD v = (fp - fm) / denom;
-        if (!v.allFinite()) return Scalar(0);
-        double vnorm = v.norm();
-        if (!(vnorm > 0.0)) return Scalar(0);
-        VecD a = (fp - 2.0 * f0 + fm) / h2;
-        if (!a.allFinite()) return Scalar(0);
-        double v2 = std::max(vnorm * vnorm, static_cast<double>(epsMach));
-        double proj = (a.dot(v)) / v2;
-        VecD a_perp = a - proj * v;
-        double numer = a_perp.norm();
-        if (!std::isfinite(numer)) return Scalar(0);
-        double kappa = numer / v2;
-        return static_cast<Scalar>(kappa);
+        const Scalar eps = std::max(static_cast<Scalar>(tol.paramTol),
+                                    static_cast<Scalar>(std::cbrt(std::numeric_limits<Scalar>::epsilon())));
+        const Scalar h = std::clamp((domain_.second - domain_.first) * Scalar(1e-4),
+                                    eps, (domain_.second - domain_.first) * Scalar(1e-2));
+
+        // Evaluate points
+        VecS f0  = evaluate(tc).coords;
+        VecS fp  = evaluate(std::min(tc + h, domain_.second)).coords;
+        VecS fm  = evaluate(std::max(tc - h, domain_.first)).coords;
+
+        // First and second derivatives (standard central difference)
+        VecS v = (fp - fm) / (Scalar(2) * h);
+        VecS a = (fp - Scalar(2) * f0 + fm) / (h * h);
+
+        Scalar vnorm = v.norm();
+        if (vnorm < tol.paramTol) return Scalar(0);
+
+        // Project out parallel component
+        Scalar vdotv = vnorm * vnorm;
+        VecS a_perp = a - (a.dot(v) / vdotv) * v;
+
+        Scalar kappa = a_perp.norm() / vdotv;
+        return kappa;
     }
 
 
@@ -592,6 +558,64 @@ public:
             return left + right;
         };
         return integrateGK(t0, t1, 0);
+    }
+    
+    // Compute an axis-aligned bounding box of the curve adaptively using tolerance model
+    std::pair<PointType, PointType> boundingBox() const {
+        Tolerance tol;
+        const Scalar t0 = domain_.first;
+        const Scalar t1 = domain_.second;
+        const Scalar span = std::max(Scalar(1e-9), t1 - t0);
+
+        // Initial bounding box using endpoints
+        PointType p0 = evaluate(t0);
+        Eigen::Matrix<Scalar, Dim, 1> minC = p0.coords;
+        Eigen::Matrix<Scalar, Dim, 1> maxC = p0.coords;
+
+        // Estimate curvature-driven refinement
+        Scalar k0 = evaluateCurvature(t0 + 0.1 * span);
+        Scalar k1 = evaluateCurvature(t0 + 0.5 * span);
+        Scalar k2 = evaluateCurvature(t0 + 0.9 * span);
+        Scalar avgK = (k0 + k1 + k2) / 3.0;
+
+        // Compute adaptive sampling density based on tolerance and curvature
+        Scalar res = tol.evaluateEpsilon(span);
+        int samples = std::clamp(
+            int(16 + std::log10(1.0 + avgK * span / res) * 32),
+            16, 512
+        );
+
+        // Sample adaptively along curve
+        for (int i = 1; i <= samples; ++i) {
+            Scalar t = t0 + (t1 - t0) * (Scalar(i) / Scalar(samples));
+            PointType p = evaluate(t);
+            minC = minC.cwiseMin(p.coords);
+            maxC = maxC.cwiseMax(p.coords);
+        }
+
+        return { PointType(minC), PointType(maxC) };
+    }
+
+    // Subdivide curve into two segments at parameter tSplit
+    std::pair<Curve, Curve> subDivide(Scalar tSplit) const {
+        const Scalar tMin = domain_.first;
+        const Scalar tMax = domain_.second;
+        const Scalar t0 = std::max(tMin, std::min(tSplit, tMax));
+
+        // Reparameterize sub-curves into [0, 1] domain
+        auto func1 = [=, this](Scalar t) -> PointType {
+            Scalar u = tMin + (t0 - tMin) * t;
+            return this->curveFunc_(u);
+        };
+        auto func2 = [=, this](Scalar t) -> PointType {
+            Scalar u = t0 + (tMax - t0) * t;
+            return this->curveFunc_(u);
+        };
+
+        Curve c1(func1, 0.0, 1.0);
+        Curve c2(func2, 0.0, 1.0);
+
+        return {c1, c2};
     }
 
     // Curve parameter domain
