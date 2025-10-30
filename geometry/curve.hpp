@@ -236,6 +236,57 @@ public:
         return VecS::Zero();
     }
 
+    // Cached variant: avoids recomputing expensive adaptive derivative
+    Eigen::Matrix<Scalar, Dim, 1> evaluateDerivativeCached(Scalar t) const {
+        // If cache hits and param matches exactly, return cached value
+        if (derivativeCache_.has_value() && derivativeCache_->first == t) {
+            return derivativeCache_->second;
+        }
+        auto d = evaluateDerivative(t);
+        derivativeCache_ = std::make_pair(t, d);
+        return d;
+    }
+
+    // Utility: adaptive 1D sampling helper for intersection-style solvers
+    template <typename Func>
+    Scalar adaptiveParametricSolve(Func f, Scalar t0, Scalar t1, Scalar targetTol) const {
+        Tolerance tol;
+        Scalar a = std::max(domain_.first, t0);
+        Scalar b = std::min(domain_.second, t1);
+        if (!(a < b)) return a;
+
+        Scalar fa = f(a);
+        Scalar fb = f(b);
+
+        // If either endpoint is already good, return it
+        if (std::abs(fa) <= targetTol) return a;
+        if (std::abs(fb) <= targetTol) return b;
+
+        // Fallback to bisection-like refinement (no assumptions about monotonicity)
+        const int maxIter = 32;
+        for (int i = 0; i < maxIter; ++i) {
+            Scalar m = (a + b) * Scalar(0.5);
+            Scalar fm = f(m);
+            if (std::abs(fm) <= targetTol) {
+                return m;
+            }
+
+            // Choose side with smaller magnitude to continue refinement
+            if (std::abs(fa) < std::abs(fb)) {
+                b = m;
+                fb = fm;
+            } else {
+                a = m;
+                fa = fm;
+            }
+
+            if (std::abs(b - a) <= targetTol * Scalar(2)) {
+                return (a + b) * Scalar(0.5);
+            }
+        }
+        return (a + b) * Scalar(0.5);
+    }
+
     // Evaluate the second derivative of the curve at parameter t (consistent with evaluateDerivative)
     Eigen::Matrix<Scalar, Dim, 1> evaluateSecondDerivative(Scalar t) const {
         using VecS = Eigen::Matrix<Scalar, Dim, 1>;
@@ -410,154 +461,78 @@ public:
     }
 
 
-    // Overload: Estimate arc length integral adaptively using internal tolerance model (Gauss–Kronrod)
+    // Overload: Estimate arc length integral adaptively using internal tolerance model (panel-doubling Simpson-like)
     Scalar evaluateIntegral() const {
-        // Use a default Tolerance model as in evaluateDerivative()
         Tolerance tol;
-        Scalar t0 = domain_.first;
-        Scalar t1 = domain_.second;
-        constexpr int maxDepth = 10;
+        const Scalar t0 = domain_.first;
+        const Scalar t1 = domain_.second;
         if (!(t0 < t1)) return Scalar(0);
 
+        // speed(t) = |p'(t)|, same as before
         auto speed = [&](Scalar t) -> Scalar {
             Scalar v = evaluateDerivative(t).norm();
             if (!std::isfinite(v)) v = Scalar(0);
             return v;
         };
 
-        // --- Step 1: Periodicity / oscillation detection on speed(t) (correlation-based) ---
-        const int M0 = 256;
-        std::vector<Scalar> s(M0);
-        for (int i = 0; i < M0; ++i) {
-            Scalar t = t0 + (t1 - t0) * Scalar(i) / Scalar(M0 - 1);
-            s[i] = speed(t);
+        const Scalar span = t1 - t0;
+
+        // Estimate oscillation by sampling speed at 8 intervals
+        Scalar osc = Scalar(0);
+        Scalar prev = speed(t0);
+        const int oscSamples = 8;
+        for (int j = 1; j <= oscSamples; ++j) {
+            Scalar tj = t0 + span * Scalar(j) / Scalar(oscSamples);
+            Scalar s = speed(tj);
+            osc += std::abs(s - prev);
+            prev = s;
+        }
+        // Oscillation threshold heuristic: tighten tolerance for rougher curves
+        const Scalar oscThreshold = Scalar(1.0);
+        Scalar oscFactor = Scalar(1.0);
+        if (osc > oscThreshold) {
+            oscFactor = Scalar(0.1) / std::min(Scalar(10.0), osc);
         }
 
-        // Basic stats
-        const Scalar meanS = static_cast<Scalar>(std::accumulate(s.begin(), s.end(), static_cast<double>(0)) / static_cast<double>(M0));
+        // target accuracy for whole interval (geometry-aware and oscillation-aware)
+        const Scalar baseTol = tol.evaluateEpsilon(std::max(span, Scalar(1)));
+        const Scalar target = std::max(baseTol * Scalar(10) * oscFactor, Scalar(1e-6));
 
-        // Demean for correlation
-        std::vector<Scalar> sd(M0);
-        for (int i = 0; i < M0; ++i) sd[i] = s[i] - meanS;
+        // basic adaptive panel-doubling (composite Simpson-like)
+        int panels = 8;               // start cheap
+        const int maxPanels = 1 << 12; // 4096 max
+        Scalar prevInt = std::numeric_limits<Scalar>::quiet_NaN();
 
-        // Autocorrelation (naive O(N^2), small N)
-        auto autocorr_at = [&](int lag) -> Scalar {
-            // Corr(lag) = sum_i sd[i]*sd[i+lag]
-            const int L = M0 - lag;
-            if (L <= 1) return Scalar(0);
-            Scalar num = Scalar(0);
-            Scalar den = Scalar(0);
-            for (int i = 0; i < L; ++i) {
-                num += sd[i] * sd[i + lag];
-                den += sd[i] * sd[i];
+        while (panels <= maxPanels) {
+            const Scalar h = span / Scalar(panels);
+            Scalar integral = Scalar(0);
+
+            // Composite Simpson-style accumulation
+            Scalar f0 = speed(t0);
+            Scalar f1 = speed(t1);
+            integral += f0 + f1;
+
+            for (int i = 1; i < panels; ++i) {
+                const Scalar ti = t0 + h * Scalar(i);
+                const Scalar fi = speed(ti);
+                // Simpson weights 4,2,4,2,...
+                integral += (i % 2 ? Scalar(4) : Scalar(2)) * fi;
             }
-            if (den == Scalar(0)) return Scalar(0);
-            return num / den; // normalized (not strictly Pearson but enough as indicator)
-        };
+            integral *= (h / Scalar(3));
 
-        // Search for a strong nonzero-lag peak up to 1/3 of the window
-        Scalar bestR = Scalar(0);
-        const int maxLag = M0 / 3;
-        for (int lag = 1; lag <= maxLag; ++lag) {
-            Scalar r = autocorr_at(lag);
-            if (r > bestR) {
-                bestR = r;
+            if (std::isfinite(prevInt)) {
+                Scalar diff = std::abs(integral - prevInt);
+                if (diff <= target) {
+                    return integral;
+                }
             }
+
+            prevInt = integral;
+            panels *= 2;
         }
 
-        // Zero-cross count (secondary cue) -- removed as unused
-
-        // The periodicStrict and oscillatory flags are detected here for diagnostics,
-        // but the integration path is always Gauss–Kronrod below.
-
-        // Arc length integrand: velocity magnitude
-        auto velocityAt = speed;
-        // Gauss–Kronrod 15-point nodes (abscissae) and weights (on [-1,1])
-        static constexpr double GK15_x[8] = {
-            0.0000000000000000,
-            0.2077849550078985,
-            0.4058451513773972,
-            0.5860872354676911,
-            0.7415311855993945,
-            0.8648644233597691,
-            0.9491079123427585,
-            0.9914553711208126
-        };
-        static constexpr double GK15_w[8] = {
-            0.2094821410847278,
-            0.2044329400752989,
-            0.1903505780647854,
-            0.1690047266392679,
-            0.1406532597155259,
-            0.1047900103222502,
-            0.0630920926299786,
-            0.0229353220105292
-        };
-        static constexpr double G7_x[4] = {
-            0.0000000000000000,
-            0.4058451513773972,
-            0.7415311855993945,
-            0.9491079123427585
-        };
-        static constexpr double G7_w[4] = {
-            0.4179591836734694,
-            0.3818300505051189,
-            0.2797053914892766,
-            0.1294849661688697
-        };
-        // Adaptive recursive Gauss–Kronrod quadrature on [a,b]
-        std::function<Scalar(Scalar, Scalar, int)> integrateGK;
-        integrateGK = [&](Scalar a, Scalar b, int depth) -> Scalar {
-            const Scalar mid  = (a + b) * Scalar(0.5);
-            const Scalar half = (b - a) * Scalar(0.5);
-            const Scalar width = std::abs(b - a);
-
-            // Only fm is needed for quadrature; fa/fb are not used except in osc (diagnostic, but can be omitted)
-            const Scalar fm = velocityAt(mid);
-
-            // --- Gauss–Kronrod 15-point integral for arc length ---
-            Scalar I15 = 0;
-            {
-                I15 += Scalar(GK15_w[0]) * fm; // center once
-                for (int i = 1; i < 8; ++i) {
-                    const Scalar xi = Scalar(GK15_x[i]);
-                    const Scalar fp = velocityAt(mid + half * xi);
-                    const Scalar fn = velocityAt(mid - half * xi);
-                    I15 += Scalar(GK15_w[i]) * (fp + fn);
-                }
-                I15 *= half;
-            }
-
-            // --- Embedded 7-point Gauss subset ---
-            Scalar I7 = 0;
-            {
-                I7 += Scalar(G7_w[0]) * fm; // center once
-                for (int i = 1; i < 4; ++i) {
-                    const Scalar xi = Scalar(G7_x[i]);
-                    const Scalar fp = velocityAt(mid + half * xi);
-                    const Scalar fn = velocityAt(mid - half * xi);
-                    I7 += Scalar(G7_w[i]) * (fp + fn);
-                }
-                I7 *= half;
-            }
-
-            // Error and tolerance for this interval
-            const Scalar err     = std::abs(I15 - I7);
-            // tolHere is only used once, so can be omitted
-
-            // Decide whether to split: only if error large OR significant normalized oscillation
-            const bool needSplit = (err >= tol.paramTol * width);
-
-            // Hard stops: recursion depth and minimal width relative to total span
-            if (!needSplit || depth >= maxDepth || width < (t1 - t0) * Scalar(1e-6)) {
-                return I15;
-            }
-
-            const Scalar left  = integrateGK(a,  mid, depth + 1);
-            const Scalar right = integrateGK(mid, b,  depth + 1);
-            return left + right;
-        };
-        return integrateGK(t0, t1, 0);
+        // if we exit the loop, return the last/best estimate
+        return prevInt;
     }
     
     // Compute an axis-aligned bounding box of the curve adaptively using tolerance model
@@ -641,6 +616,7 @@ public:
 private:
     std::function<PointType(Scalar)> curveFunc_;
     std::pair<Scalar, Scalar> domain_;
+    mutable std::optional<std::pair<Scalar, Eigen::Matrix<Scalar, Dim, 1>>> derivativeCache_;
 };
 
 } // namespace Euclid::Geometry

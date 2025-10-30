@@ -883,6 +883,52 @@ inline void testCurveDerivativeParametricStepSensitivity() {
     std::cout << std::endl;
 }
 
+inline void testCurveDerivativeCacheAndAdaptiveSolver() {
+    std::cout << "\n∿ Testing Derivative Cache and Adaptive Parametric Solver\n";
+
+    using Point2 = Euclid::Geometry::Point<float, 2>;
+    using Curve2 = Euclid::Geometry::Curve<float, 2>;
+    Euclid::Tolerance tol;
+
+    // --- Derivative Cache Test ---
+    auto func = [](float t){ return Point2{t, std::sin(2.0f * float(M_PI) * t)}; };
+    Curve2 c(func, 0.0f, 1.0f);
+    float t = 0.25f;
+
+    // First call should compute and populate cache
+    auto d1 = c.evaluateDerivativeCached(t);
+    // Second call should reuse cache
+    auto d2 = c.evaluateDerivativeCached(t);
+    bool cacheStable = (d1 == d2);
+    std::cout << "[DEBUG] Cached derivative call stable: "
+              << (cacheStable ? "true" : "false") << " at t=" << t << std::endl;
+    printTest("Derivative cache consistency", cacheStable);
+
+    // Verify derivative close to analytical (dx, dy) = (1, 2π cos(2πt))
+    Eigen::Vector2f expected(1.0f, 2.0f * float(M_PI) * std::cos(2.0f * float(M_PI) * t));
+    float absErr = (d1 - expected).norm();
+    float tolVal = tol.evaluateEpsilon(expected.norm()) * 10.0f;
+    printTest("Derivative cache numerical accuracy", absErr <= 3.0f * tolVal);
+
+    // --- Adaptive Parametric Solver Test ---
+    // Solve f(t)=0 for t in [0,1] with known root at t=0.5
+    auto f = [](float t){ return t - 0.5f; };
+    float root = c.adaptiveParametricSolve(f, 0.0f, 1.0f, 1e-5f);
+    float diff = std::abs(root - 0.5f);
+    std::cout << "[DEBUG] adaptiveParametricSolve: root=" << root
+              << " diff=" << diff << std::endl;
+    printTest("Adaptive parametric solver (simple root)", diff <= 1e-5f);
+
+    // Harder oscillatory test: sin(2πt) root near 0.0, 0.5, 1.0
+    auto f2 = [](float t){ return std::sin(2.0f * float(M_PI) * t); };
+    float root2 = c.adaptiveParametricSolve(f2, 0.4f, 0.6f, 1e-4f);
+    float expected2 = 0.5f;
+    diff = std::abs(root2 - expected2);
+    std::cout << "[DEBUG] adaptiveParametricSolve(sin): root=" << root2
+              << " diff=" << diff << std::endl;
+    printTest("Adaptive parametric solver (oscillatory root)", diff <= 1e-3f);
+}
+
 // Correlation between curvature and confidence for representative curves
 inline void testCurveDerivativeCurvatureCorrelation() {
     std::cout << "\n∿ Curve Derivative Curvature–Confidence Correlation\n";
@@ -1399,6 +1445,7 @@ inline void testCurve() {
     testCurveDerivative();
     testCurveSecondDerivative();
     testCurveDerivativeAccuracy();
+    testCurveDerivativeCacheAndAdaptiveSolver();
     testCurveDerivativeParametricStepSensitivity();
     testCurveDerivativeCurvatureCorrelation();
      
