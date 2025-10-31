@@ -6,6 +6,8 @@
 #include "geometry/curve.hpp"
 #include "test_utilities.hpp"
 
+#include "test_curve_intersection.hpp"
+
 
 using namespace Euclid::Geometry;
 using namespace Euclid::Algebra;
@@ -1462,6 +1464,8 @@ inline void testCurve() {
     testCurveTangent();
     testCurveSubdivide();
     testCurveBoundingBox();
+    
+    testCurveIntersection();
     
     
 

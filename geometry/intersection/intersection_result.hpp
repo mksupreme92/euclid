@@ -12,7 +12,9 @@ template <typename T, int N>
 struct ParamHit {
     T t_line{};
     T u_curve{};
+    T u_curve2{}; // for second curve parameter (curve–curve intersection)
     T v_surface{};
+    T u_surface2{}; // for second surface parameter (surface–surface intersection)
     Point<T, N> p{};
     bool tangential = false;
 };
