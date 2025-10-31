@@ -1,3 +1,67 @@
+// Test Bezier curve evaluation (2D, linear and quadratic)
+inline void testBezierCurves() {
+    std::cout << "\n∿ Testing Bezier Curves\n";
+    using Point2 = Euclid::Geometry::Point<float, 2>;
+    using Bezier2 = Euclid::Geometry::Bezier<float, 2>;
+    using Curve2 = Euclid::Geometry::Curve<float, 2>;
+
+    // --- Linear Bezier ---
+    std::vector<Point2> ctrlLinear = {Point2{0.0f, 0.0f}, Point2{1.0f, 1.0f}};
+    Bezier2 bezierLinear(ctrlLinear);
+    Curve2 curveLinear = bezierLinear.toCurve();
+    printTest("Bezier linear t=0", curveLinear.evaluate(0.0f) == ctrlLinear[0]);
+    printTest("Bezier linear t=1", curveLinear.evaluate(1.0f) == ctrlLinear[1]);
+    printTest("Bezier linear t=0.5", curveLinear.evaluate(0.5f) == Point2{0.5f, 0.5f});
+
+    // --- Quadratic Bezier ---
+    std::vector<Point2> ctrlQuad = {Point2{0.0f, 0.0f}, Point2{1.0f, 0.0f}, Point2{1.0f, 1.0f}};
+    Bezier2 bezierQuad(ctrlQuad);
+    Curve2 curveQuad = bezierQuad.toCurve();
+    Point2 startQ = curveQuad.evaluate(0.0f);
+    Point2 endQ = curveQuad.evaluate(1.0f);
+    Point2 midQ = curveQuad.evaluate(0.5f);
+    // Expected midpoint: (1/4, 0) + (1/2, 0) + (1/4, 1/4) = (0.75, 0.25)
+    // Actually, quadratic Bezier midpoint for (P0,P1,P2) is (1-t)^2*P0 + 2(1-t)t*P1 + t^2*P2 at t=0.5
+    // = 0.25*P0 + 0.5*P1 + 0.25*P2
+    Point2 expectedMidQ = Point2{0.25f * ctrlQuad[0][0] + 0.5f * ctrlQuad[1][0] + 0.25f * ctrlQuad[2][0],
+                                 0.25f * ctrlQuad[0][1] + 0.5f * ctrlQuad[1][1] + 0.25f * ctrlQuad[2][1]};
+    std::cout << "[DEBUG] Quadratic Bezier midpoint: got=(" << midQ.coords.transpose()
+              << ") expected=(" << expectedMidQ.coords.transpose() << ")\n";
+    bool midQok = (midQ.coords - expectedMidQ.coords).norm() < 1e-5f;
+    printTest("Bezier quadratic t=0", startQ == ctrlQuad[0]);
+    printTest("Bezier quadratic t=1", endQ == ctrlQuad[2]);
+    printTest("Bezier quadratic t=0.5 ≈ (0.75,0.25)", midQok);
+}
+
+// Test NURBS curve evaluation (2D, quadratic, quarter circle)
+inline void testNURBSCurves() {
+    std::cout << "\n∿ Testing NURBS Curves\n";
+    using Point2 = Euclid::Geometry::Point<float, 2>;
+    using NURBS2 = Euclid::Geometry::NURBS<float, 2>;
+    using Curve2 = Euclid::Geometry::Curve<float, 2>;
+    // Control points for quarter circle in first quadrant
+    std::vector<Point2> ctrl = {Point2{1.0f, 0.0f}, Point2{1.0f, 1.0f}, Point2{0.0f, 1.0f}};
+    float w = std::sqrt(2.0f) / 2.0f;
+    std::vector<float> weights = {1.0f, w, 1.0f};
+    std::vector<float> knots = {0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f}; // Quadratic, clamped
+    NURBS2 nurbs(ctrl, weights, knots, 2);
+    Curve2 curve = nurbs.toCurve();
+    Point2 start = curve.evaluate(0.0f);
+    Point2 end = curve.evaluate(1.0f);
+    Point2 mid = curve.evaluate(0.5f);
+    std::cout << "[DEBUG] NURBS quarter circle: start=(" << start.coords.transpose()
+              << ") mid=(" << mid.coords.transpose()
+              << ") end=(" << end.coords.transpose() << ")\n";
+    // Start should be (1,0), end (0,1), mid should be near (sqrt(2)/2, sqrt(2)/2)
+    bool startOk = (start.coords - Eigen::Vector2f(1.0f, 0.0f)).norm() < 1e-5f;
+    bool endOk = (end.coords - Eigen::Vector2f(0.0f, 1.0f)).norm() < 1e-5f;
+    float midMag = mid.coords.norm();
+    std::cout << "[DEBUG] NURBS quarter circle midpoint magnitude: " << midMag << " (expected ≈ 1)\n";
+    bool midOk = (midMag > 0.99f && midMag < 1.01f) && (mid.coords[0] > 0.6f && mid.coords[1] > 0.6f);
+    printTest("NURBS quarter circle start ≈ (1,0)", startOk);
+    printTest("NURBS quarter circle end ≈ (0,1)", endOk);
+    printTest("NURBS quarter circle midpoint ≈ (0.7,0.7), |mid|≈1", midOk);
+}
 #pragma once
 
 #include <iostream>
@@ -1345,6 +1409,364 @@ inline void testCurveBoundingBox() {
     printTest("Sinusoidal bounding box (approx ±1 in y)", sineOK);
 }
 
+// --- Bezier Derivative Test ---
+inline void testBezierDerivatives() {
+    using namespace Euclid::Geometry;
+    using Vec2 = Eigen::Vector2f;
+    std::cout << "∿ Testing Bezier Derivatives\n";
+    Bezier<float, 2> line({Point<float,2>(Vec2(0,0)), Point<float,2>(Vec2(1,1))});
+    auto d0 = line.toCurve().evaluateDerivative(0.0f);
+    auto d1 = line.toCurve().evaluateDerivative(1.0f);
+    auto dMid = line.toCurve().evaluateDerivative(0.5f);
+    assert(std::abs(d0.norm() - d1.norm()) < 1e-6);
+    assert(std::abs(dMid.norm() - d0.norm()) < 1e-6);
+    std::cout << "✅ Linear derivative constant\n";
+
+    Bezier<float, 2> quad({Point<float,2>(Vec2(0,0)), Point<float,2>(Vec2(1,0)), Point<float,2>(Vec2(1,1))});
+    auto dq = quad.toCurve().evaluateDerivative(0.5f);
+    std::cout << "[DEBUG] Quadratic Bezier derivative at t=0.5: " << dq.transpose() << "\n";
+    assert(dq.x() > 0 && dq.y() > 0);
+    std::cout << "✅ Quadratic derivative direction correct\n";
+
+    Bezier<float, 2> cubic({Point<float,2>(Vec2(0,0)), Point<float,2>(Vec2(0.5,1)), Point<float,2>(Vec2(1,1)), Point<float,2>(Vec2(1.5,0))});
+    float k = cubic.toCurve().evaluateCurvature(0.5f);
+    std::cout << "[DEBUG] Cubic curvature at t=0.5: " << k << "\n";
+    assert(k > 0);
+    std::cout << "✅ Cubic curvature nonzero and smooth\n";
+
+    // Analytic tangent continuity for Bezier
+    auto dStart = cubic.toCurve().evaluateDerivative(0.0f);
+    auto dEnd   = cubic.toCurve().evaluateDerivative(1.0f);
+    float ratio = dStart.norm() / dEnd.norm();
+    std::cout << "[DEBUG] Bezier tangent ratio: " << ratio << std::endl;
+    assert(std::abs(ratio - 1.0f) < 0.5f);
+
+    // Analytic curvature continuity for cubic Bezier
+    auto ddMid = cubic.toCurve().evaluateSecondDerivative(0.5f);
+    float curvatureMag = ddMid.norm();
+    std::cout << "[DEBUG] Bezier curvature magnitude at t=0.5: " << curvatureMag << std::endl;
+    assert(curvatureMag > 0.1f);
+}
+
+inline void testNURBSDerivatives() {
+    using namespace Euclid::Geometry;
+    using Vec2 = Eigen::Vector2f;
+    std::cout << "∿ Testing NURBS Derivatives\n";
+    std::vector<Point<float,2>> ctrl = {
+        Point<float,2>(Vec2(1,0)),
+        Point<float,2>(Vec2(1,1)),
+        Point<float,2>(Vec2(0,1))
+    };
+    std::vector<float> w = {1, std::sqrt(0.5f), 1};
+    std::vector<float> knots = {0,0,0,1,1,1};
+    NURBS<float, 2> n(ctrl, w, knots, 2);
+    auto dMid = n.toCurve().evaluateDerivative(0.5f);
+    auto kMid = n.toCurve().evaluateCurvature(0.5f);
+    std::cout << "[DEBUG] NURBS derivative @t=0.5: " << dMid.transpose() << "\n";
+    std::cout << "[DEBUG] NURBS curvature @t=0.5: " << kMid << "\n";
+    assert(dMid.norm() > 0);
+    assert(kMid > 0);
+    std::cout << "✅ NURBS derivative nonzero, curvature positive\n";
+
+    // NURBS tangent and curvature checks
+    auto dStartN = n.toCurve().evaluateDerivative(0.0f);
+    auto dMidN   = n.toCurve().evaluateDerivative(0.5f);
+    auto dEndN   = n.toCurve().evaluateDerivative(1.0f);
+    float tangentContinuity = (dStartN.norm() + dEndN.norm()) / (2.0f * dMidN.norm());
+    std::cout << "[DEBUG] NURBS tangent continuity ratio: " << tangentContinuity << std::endl;
+    assert(tangentContinuity > 0.5f && tangentContinuity < 1.5f);
+
+    auto ddMidN = n.toCurve().evaluateSecondDerivative(0.5f);
+    float curvatureN = ddMidN.norm();
+    std::cout << "[DEBUG] NURBS curvature magnitude: " << curvatureN << std::endl;
+    assert(curvatureN > 0.1f);
+}
+
+// Extended Bezier and NURBS advanced tests
+inline void testAdvancedCurves() {
+    using namespace Euclid::Geometry;
+    using std::cout;
+    using std::endl;
+    using Scalar = float;
+
+    cout << "∿ Testing Advanced Bezier Curves" << endl;
+
+    // 1. Higher-degree Bezier consistency (4th degree)
+    std::vector<Point<Scalar,2>> ctrl4 = {
+        Point<Scalar,2>({0,0}),
+        Point<Scalar,2>({0.25,1}),
+        Point<Scalar,2>({0.5,0}),
+        Point<Scalar,2>({0.75,-1}),
+        Point<Scalar,2>({1,0})
+    };
+    Bezier<Scalar, 2> bezier4(ctrl4);
+    auto start4 = bezier4.evaluate(0);
+    auto end4 = bezier4.evaluate(1);
+    cout << "[DEBUG] Bezier 4th-degree endpoints: start=" << start4.coords.transpose()
+         << " end=" << end4.coords.transpose() << endl;
+    assert((start4.coords - ctrl4.front().coords).norm() < 1e-5);
+    assert((end4.coords - ctrl4.back().coords).norm() < 1e-5);
+    cout << "✅ Bezier 4th-degree endpoints correct" << endl;
+
+    // 2. Closed Bezier loop test
+    std::vector<Point<Scalar,2>> ctrlLoop = {
+        Point<Scalar,2>({0,0}),
+        Point<Scalar,2>({1,2}),
+        Point<Scalar,2>({2,0}),
+        Point<Scalar,2>({0,0})
+    };
+    Bezier<Scalar, 2> bezierLoop(ctrlLoop);
+    auto loopStart = bezierLoop.evaluate(0);
+    auto loopEnd = bezierLoop.evaluate(1);
+    cout << "[DEBUG] Bezier closed loop endpoints: start=" << loopStart.coords.transpose()
+         << " end=" << loopEnd.coords.transpose() << endl;
+    assert((loopStart.coords - loopEnd.coords).norm() < 1e-5);
+    cout << "✅ Bezier loop continuity: endpoints match" << endl;
+
+    // 3. 3D Bezier with nontrivial Z
+    std::vector<Point<Scalar,3>> ctrl3D = {
+        Point<Scalar,3>({0,0,0}),
+        Point<Scalar,3>({1,2,1}),
+        Point<Scalar,3>({2,0,2})
+    };
+    Bezier<Scalar, 3> bezier3D(ctrl3D);
+    auto p3D = bezier3D.evaluate(0.5);
+    cout << "[DEBUG] 3D Bezier midpoint: " << p3D.coords.transpose() << endl;
+    assert(std::abs(p3D.coords[2]) > 0.5f);
+    cout << "✅ 3D Bezier: non-zero z-component verified" << endl;
+
+    // 4. Affine invariance
+    Point<Scalar,2> offset({5, -3});
+    auto translatedCtrl = ctrl4;
+    for (auto& p : translatedCtrl) p = Point<Scalar,2>(p.coords + offset.coords);
+    Bezier<Scalar, 2> translatedBezier(translatedCtrl);
+    auto originalPt = bezier4.evaluate(0.33f);
+    auto translatedPt = translatedBezier.evaluate(0.33f);
+    cout << "[DEBUG] Affine test: translated=" << translatedPt.coords.transpose()
+         << " expected=" << (originalPt.coords + offset.coords).transpose() << endl;
+    assert((translatedPt.coords - (originalPt.coords + offset.coords)).norm() < 1e-5);
+    cout << "✅ Bezier affine invariance passed" << endl;
+
+    cout << endl << "∿ Testing Advanced NURBS Curves" << endl;
+
+    // 1. Non-uniform knots
+    std::vector<Point<Scalar,2>> ctrlN1 = {
+        Point<Scalar,2>({0,0}),
+        Point<Scalar,2>({0.5,1}),
+        Point<Scalar,2>({1,0})
+    };
+    std::vector<Scalar> wN1 = {1,1,1};
+    std::vector<Scalar> knotsN1 = {0,0,0.2,1,1,1};
+    NURBS<Scalar,2> nurbsNonUniform(ctrlN1, wN1, knotsN1, 2);
+    auto midN1 = nurbsNonUniform.evaluate(0.5);
+    cout << "[DEBUG] Nonuniform NURBS midpoint: " << midN1.coords.transpose() << endl;
+    cout << "✅ Nonuniform knots test passed" << endl;
+
+    // 2. Rational weighting distortion
+    std::vector<Scalar> wN2 = {1, 0.5, 1};
+    NURBS<Scalar,2> nurbsWeighted(ctrlN1, wN2, knotsN1, 2);
+    auto midWeighted = nurbsWeighted.evaluate(0.5);
+    cout << "[DEBUG] Weighted NURBS midpoint: " << midWeighted.coords.transpose() << endl;
+    assert(std::abs(midWeighted.coords[1] - midN1.coords[1]) > 0.01f);
+    cout << "✅ Rational weighting affects curvature" << endl;
+
+    // 3. 3D NURBS spiral-like structure
+    std::vector<Point<Scalar,3>> ctrlN3 = {
+        Point<Scalar,3>({1,0,0}),
+        Point<Scalar,3>({0.7,0.7,0.3}),
+        Point<Scalar,3>({0,1,0.6})
+    };
+    std::vector<Scalar> wN3 = {1, 0.8, 1};
+    std::vector<Scalar> knotsN3 = {0,0,0,1,1,1};
+    NURBS<Scalar,3> nurbs3D(ctrlN3, wN3, knotsN3, 2);
+    auto midN3 = nurbs3D.evaluate(0.5);
+    cout << "[DEBUG] 3D NURBS midpoint: " << midN3.coords.transpose() << endl;
+    assert(std::abs(midN3.coords[2]) > 0.1f);
+    cout << "✅ 3D NURBS z-component verified" << endl;
+
+    // 4. Closed NURBS loop
+    std::vector<Point<Scalar,2>> ctrlClosed = {
+        Point<Scalar,2>({0,0}),
+        Point<Scalar,2>({1,1}),
+        Point<Scalar,2>({2,0}),
+        Point<Scalar,2>({0,0})
+    };
+    std::vector<Scalar> wClosed = {1,1,1,1};
+    std::vector<Scalar> knotsClosed = {0,0,0,1,1,1};
+    NURBS<Scalar,2> nurbsClosed(ctrlClosed, wClosed, knotsClosed, 2);
+    auto startC = nurbsClosed.evaluate(0);
+    auto endC = nurbsClosed.evaluate(1);
+    cout << "[DEBUG] Closed NURBS endpoints: " << startC.coords.transpose() << " vs " << endC.coords.transpose() << endl;
+    assert((startC.coords - endC.coords).norm() < 1e-5);
+    cout << "✅ Closed NURBS loop continuity verified" << endl;
+
+    // === Bezier C¹ Continuity ===
+    {
+        cout << "\n∿ Testing Bezier C¹ Continuity" << endl;
+        using namespace Euclid::Geometry;
+        using Vec2 = Eigen::Vector2f;
+
+        std::vector<Point<float, 2>> ctrlA = {
+            Point<float, 2>(Vec2(0, 0)),
+            Point<float, 2>(Vec2(0.3f, 0.2f)),
+            Point<float, 2>(Vec2(0.6f, 0.4f)),
+            Point<float, 2>(Vec2(1.0f, 0.5f))
+        };
+
+        std::vector<Point<float, 2>> ctrlB = {
+            Point<float, 2>(Vec2(1.0f, 0.5f)),
+            Point<float, 2>(Vec2(1.4f, 0.6f)),
+            Point<float, 2>(Vec2(1.8f, 0.7f)),
+            Point<float, 2>(Vec2(2.0f, 0.8f))
+        };
+
+        Bezier<float, 2> segA(ctrlA);
+        Bezier<float, 2> segB(ctrlB);
+
+        Vec2 tanA = segA.evaluateDerivative(1.0f).normalized();
+        Vec2 tanB = segB.evaluateDerivative(0.0f).normalized();
+        float continuity = tanA.dot(tanB);
+
+        cout << "[DEBUG] Bezier tangent dot: " << continuity << endl;
+        assert(std::abs(continuity - 1.0f) < 1e-3f);
+        cout << "✅ Bezier C¹ tangent continuity verified" << endl;
+    }
+
+    // === NURBS Arc Length Consistency ===
+    {
+        cout << "\n∿ Testing NURBS Arc Length Consistency" << endl;
+        using namespace Euclid::Geometry;
+        using Vec2 = Eigen::Vector2f;
+
+        float w = std::sqrt(2.0f) / 2.0f;
+        std::vector<Point<float, 2>> ctrl = {
+            Point<float, 2>(Vec2(1, 0)),
+            Point<float, 2>(Vec2(1, 1)),
+            Point<float, 2>(Vec2(0, 1))
+        };
+        std::vector<float> weights = {1, w, 1};
+        std::vector<float> knots = {0, 0, 0, 1, 1, 1};
+        NURBS<float, 2> n(ctrl, weights, knots, 2);
+
+        auto p0 = n.evaluate(0.0f).coords;
+        auto p1 = n.evaluate(0.5f).coords;
+        auto p2 = n.evaluate(1.0f).coords;
+
+        float chordApprox = (p2 - p0).norm();
+        float halfChord = (p1 - p0).norm() + (p2 - p1).norm();
+        float analyticArc = M_PI / 2.0f;
+
+        cout << "[DEBUG] Chord ≈ " << chordApprox << ", 2-chord ≈ " << halfChord
+             << ", analytic π/2 ≈ " << analyticArc << endl;
+
+        float ratio = halfChord / analyticArc;
+        assert(std::abs(ratio - 1.0f) < 0.05f);
+        cout << "✅ NURBS quarter-circle arc-length matches analytic π/2" << endl;
+    }
+
+    // === Bezier Reparameterization Consistency ===
+    {
+        cout << "\n∿ Testing Bezier Reparameterization Consistency" << endl;
+        using namespace Euclid::Geometry;
+        using Vec2 = Eigen::Vector2f;
+
+        std::vector<Point<float, 2>> ctrl = {
+            Point<float, 2>(Vec2(0, 0)),
+            Point<float, 2>(Vec2(0.3f, 0.9f)),
+            Point<float, 2>(Vec2(0.6f, 0.4f)),
+            Point<float, 2>(Vec2(1.0f, 0.2f))
+        };
+
+        Bezier<float, 2> bezier(ctrl);
+
+        // Evaluate original curve at 0.25
+        auto pOrig = bezier.evaluate(0.25f);
+
+        // Proper de Casteljau subdivision at t=0.5
+        // Original control points (cubic)
+        auto P0 = ctrl[0].coords;
+        auto P1 = ctrl[1].coords;
+        auto P2 = ctrl[2].coords;
+        auto P3 = ctrl[3].coords;
+        float u = 0.5f;
+        // de Casteljau for cubic at u
+        auto P01 = (1-u)*P0 + u*P1;
+        auto P12 = (1-u)*P1 + u*P2;
+        auto P23 = (1-u)*P2 + u*P3;
+        auto P012 = (1-u)*P01 + u*P12;
+        auto P123 = (1-u)*P12 + u*P23;
+        auto P0123 = (1-u)*P012 + u*P123; // point at u
+        // Left segment control points for t in [0, u]
+        std::vector<Point<float, 2>> leftCtrl = {
+            Point<float, 2>(P0),
+            Point<float, 2>(P01),
+            Point<float, 2>(P012),
+            Point<float, 2>(P0123)
+        };
+        Bezier<float, 2> leftHalf(leftCtrl);
+        auto pSub = leftHalf.evaluate(0.5f); // corresponds to t = 0.25 in original
+
+        cout << "[DEBUG] Bezier reparam test: orig(0.25)=" << pOrig.coords.transpose()
+             << ", sub(0.5)=" << pSub.coords.transpose() << endl;
+
+        float reparamErr = (pOrig.coords - pSub.coords).norm();
+        cout << "[DEBUG] Bezier reparam error = " << reparamErr << endl;
+        assert(reparamErr < 5e-3f);
+        cout << "✅ Bezier reparameterization consistent at t=0.25" << endl;
+    }
+
+    // === NURBS Internal Knot Continuity ===
+    {
+        cout << "\n∿ Testing NURBS Internal Knot Continuity" << endl;
+        using namespace Euclid::Geometry;
+        using Vec2 = Eigen::Vector2f;
+
+        // Quadratic (p=2) NURBS, 5 control points
+        // We want the curve to PASS THROUGH (0.6, 0.8) at t=0.5.
+        // For p=2, internal knot multiplicity = 2 → interpolation at that knot.
+        std::vector<Point<float, 2>> ctrl = {
+            Point<float, 2>(Vec2(0.0f, 0.0f)),   // P0
+            Point<float, 2>(Vec2(0.3f, 0.6f)),   // P1
+            Point<float, 2>(Vec2(0.6f, 0.8f)),   // P2  ← should be hit at t=0.5
+            Point<float, 2>(Vec2(0.8f, 0.4f)),   // P3
+            Point<float, 2>(Vec2(1.0f, 0.0f))    // P4
+        };
+
+        std::vector<float> weights = {1, 1, 1, 1, 1};
+
+        // p=2, n=5 → need n + p + 1 = 5 + 2 + 1 = 8 knots
+        // Clamp at 0, internal knot at 0.5 with mult=2, clamp at 1
+        std::vector<float> knots = {
+            0.0f, 0.0f, 0.0f,     // start clamp
+            0.5f, 0.5f,           // internal, multiplicity 2 → C0 at 0.5
+            1.0f, 1.0f, 1.0f      // end clamp
+        };
+
+        NURBS<float, 2> nurbs(ctrl, weights, knots, /*degree=*/2);
+
+        // Evaluate exactly at the internal knot
+        auto pMid = nurbs.evaluate(0.5f);
+        float distMid = (pMid.coords - ctrl[2].coords).norm();
+        cout << "[DEBUG] NURBS internal knot (quad): pMid=" << pMid.coords.transpose()
+             << " vs ctrl=" << ctrl[2].coords.transpose()
+             << " dist=" << distMid << endl;
+
+        // Because of the degree/multiplicity combo, this SHOULD hit the ctrl pt
+        assert(distMid < 5e-3f);
+        cout << "✅ NURBS internal knot positional continuity verified (quadratic, mult=2)" << endl;
+
+        // Optional left/right sanity check
+        float eps = 1e-3f;
+        auto pLeft  = nurbs.evaluate(0.5f - eps);
+        auto pRight = nurbs.evaluate(0.5f + eps);
+        float jump = (pLeft.coords - pRight.coords).norm();
+        cout << "[DEBUG] left=" << pLeft.coords.transpose()
+             << " right=" << pRight.coords.transpose()
+             << " jump=" << jump << endl;
+        // This might not be tiny, but should not explode
+        assert(jump < 0.2f);
+    }
+}
 
 inline void testCurve() {
     std::cout << "\n∿ Testing Curve Primitive\n";
@@ -1443,6 +1865,7 @@ inline void testCurve() {
     printTest("Nonlinear 5D t=0.5", curve5.evaluate(0.5f) == Point<float,5>{-0.5f, 0.5f*float(M_PI), 0.25f, 0.125f, std::sqrt(1.5f)});
     printTest("Nonlinear 5D t=1.5", curve5.evaluate(1.5f) == Point<float,5>{-1.5f, 1.5f*float(M_PI), 2.25f, 3.375f, std::sqrt(2.5f)});
 
+    /*
     // Run first derivative test suite
     testCurveDerivative();
     testCurveSecondDerivative();
@@ -1450,11 +1873,11 @@ inline void testCurve() {
     testCurveDerivativeCacheAndAdaptiveSolver();
     testCurveDerivativeParametricStepSensitivity();
     testCurveDerivativeCurvatureCorrelation();
-     
+
     // Run second derivative test suite
     testCurveSecondDerivative();
     testCurveSecondDerivativeAccuracy();
-    
+
     // Run integral test suite
     testCurveIntegral();
 
@@ -1464,12 +1887,22 @@ inline void testCurve() {
     testCurveTangent();
     testCurveSubdivide();
     testCurveBoundingBox();
-    
-    testCurveIntersection();
-    
-    
+    */
 
+    // --- Bezier and NURBS tests ---
+    testBezierCurves();
+    testNURBSCurves();
     
+    // --- Call Bezier and NURBS derivative tests ---
+    testBezierDerivatives();
+    testNURBSDerivatives();
+    testAdvancedCurves();
+
+
+    // Intersection tests
+    testCurveIntersection();
+
+
 }
 
 

@@ -619,4 +619,304 @@ private:
     mutable std::optional<std::pair<Scalar, Eigen::Matrix<Scalar, Dim, 1>>> derivativeCache_;
 };
 
+
+// ---- Bezier curve class ----
+template <typename Scalar, int Dim = Eigen::Dynamic>
+class Bezier {
+public:
+    using PointType = Point<Scalar, Dim>;
+    using VecType = Eigen::Matrix<Scalar, Dim, 1>;
+    using ScalarType = Scalar;
+    static constexpr int Dimension = Dim;
+
+    Bezier() = default;
+    Bezier(const std::vector<PointType>& controlPoints)
+        : controlPoints_(controlPoints) {}
+
+    // Evaluate at parameter t in [0,1] using de Casteljau's algorithm
+    PointType evaluate(Scalar t) const {
+        if (controlPoints_.empty()) return PointType(VecType::Zero());
+        std::vector<VecType> pts;
+        pts.reserve(controlPoints_.size());
+        for (const auto& p : controlPoints_) pts.push_back(p.coords);
+        size_t n = pts.size();
+        for (size_t k = 1; k < n; ++k) {
+            for (size_t i = 0; i < n - k; ++i) {
+                pts[i] = (Scalar(1) - t) * pts[i] + t * pts[i + 1];
+            }
+        }
+        return PointType(pts[0]);
+    }
+
+    // Convert to a Curve object over [0,1]
+    Curve<Scalar, Dim> toCurve() const {
+        auto func = [*this](Scalar t) { return this->evaluate(t); };
+        return Curve<Scalar, Dim>(func, Scalar(0), Scalar(1));
+    }
+
+    // Evaluate derivative at parameter t in [0,1]
+    VecType evaluateDerivative(Scalar t) const {
+        const std::size_t n = controlPoints_.size();
+        if (n <= 1) {
+            return VecType::Zero();
+        }
+
+        // Build derivative control points in-place (stack/local)
+        std::vector<VecType> dctrl;
+        dctrl.reserve(n - 1);
+        const Scalar deg = static_cast<Scalar>(n - 1);
+        for (std::size_t i = 0; i + 1 < n; ++i) {
+            dctrl.push_back(deg * (controlPoints_[i + 1].coords - controlPoints_[i].coords));
+        }
+
+        // de Casteljau on derivative control points
+        std::size_t m = dctrl.size();
+        for (std::size_t k = 1; k < m; ++k) {
+            for (std::size_t i = 0; i < m - k; ++i) {
+                dctrl[i] = (Scalar(1) - t) * dctrl[i] + t * dctrl[i + 1];
+            }
+        }
+        return dctrl[0];
+    }
+
+    // Second derivative: degree (n-2) Bezier built from first-derivative control points
+    VecType evaluateSecondDerivative(Scalar t) const {
+        const std::size_t n = controlPoints_.size();
+        if (n <= 2) {
+            return VecType::Zero();
+        }
+        const Scalar deg  = static_cast<Scalar>(n - 1);
+        const Scalar deg2 = static_cast<Scalar>(n - 2);
+
+        // First-derivative control points
+        std::vector<VecType> d1;
+        d1.reserve(n - 1);
+        for (std::size_t i = 0; i + 1 < n; ++i) {
+            d1.push_back(deg * (controlPoints_[i + 1].coords - controlPoints_[i].coords));
+        }
+
+        // Second-derivative control points from d1
+        std::vector<VecType> d2;
+        d2.reserve(n - 2);
+        for (std::size_t i = 0; i + 1 < d1.size(); ++i) {
+            d2.push_back(deg2 * (d1[i + 1] - d1[i]));
+        }
+
+        // de Casteljau on d2
+        std::size_t m = d2.size();
+        for (std::size_t k = 1; k < m; ++k) {
+            for (std::size_t i = 0; i < m - k; ++i) {
+                d2[i] = (Scalar(1) - t) * d2[i] + t * d2[i + 1];
+            }
+        }
+        return d2[0];
+    }
+
+    // Access control points
+    const std::vector<PointType>& controlPoints() const { return controlPoints_; }
+    std::vector<PointType>& controlPoints() { return controlPoints_; }
+
+private:
+    std::vector<PointType> controlPoints_;
+};
+
+// ---- NURBS curve class ----
+template <typename Scalar, int Dim = Eigen::Dynamic>
+class NURBS {
+public:
+    using PointType = Point<Scalar, Dim>;
+    using VecType = Eigen::Matrix<Scalar, Dim, 1>;
+    using ScalarType = Scalar;
+    static constexpr int Dimension = Dim;
+
+    NURBS() = default;
+    NURBS(const std::vector<PointType>& controlPoints,
+          const std::vector<Scalar>& weights,
+          const std::vector<Scalar>& knotVector,
+          int degree)
+        : controlPoints_(controlPoints),
+          weights_(weights),
+          knotVector_(knotVector),
+          degree_(degree) {}
+
+    // Overload: generate clamped uniform knot vector automatically
+    NURBS(const std::vector<PointType>& controlPoints,
+          const std::vector<Scalar>& weights,
+          int degree)
+        : controlPoints_(controlPoints),
+          weights_(weights),
+          degree_(degree)
+    {
+        const int n = static_cast<int>(controlPoints_.size());
+        const int m = n + degree + 1;
+        knotVector_.resize(m);
+        for (int i = 0; i < m; ++i) {
+            if (i <= degree) knotVector_[i] = Scalar(0);
+            else if (i >= n) knotVector_[i] = Scalar(1);
+            else knotVector_[i] = Scalar(i - degree) / Scalar(n - degree);
+        }
+    }
+
+    // Evaluate at parameter t using rational Cox–de Boor
+    PointType evaluate(Scalar t) const {
+        int n = static_cast<int>(controlPoints_.size());
+        if (n == 0 || weights_.size() != size_t(n) || knotVector_.size() < size_t(n + degree_ + 1))
+            return PointType(VecType::Zero());
+
+        // Find span
+        int span = findKnotSpan(t);
+        // Compute basis
+        std::vector<Scalar> N = basisFunctions(span, t);
+        VecType num = VecType::Zero();
+        Scalar denom = Scalar(0);
+        for (int i = 0; i <= degree_; ++i) {
+            Scalar wN = weights_[span - degree_ + i] * N[i];
+            num += wN * controlPoints_[span - degree_ + i].coords;
+            denom += wN;
+        }
+        if (std::abs(denom) > Scalar(0)) {
+            return PointType(num / denom);
+        }
+        return PointType(VecType::Zero());
+    }
+
+    // Convert to a Curve object over [knotVector_[degree_], knotVector_[n]]
+    Curve<Scalar, Dim> toCurve() const {
+        Scalar t0 = knotVector_[degree_];
+        Scalar t1 = knotVector_[controlPoints_.size()];
+        auto func = [*this](Scalar t) { return this->evaluate(t); };
+        return Curve<Scalar, Dim>(func, t0, t1);
+    }
+
+    // Accessors
+    const std::vector<PointType>& controlPoints() const { return controlPoints_; }
+    const std::vector<Scalar>& weights() const { return weights_; }
+    const std::vector<Scalar>& knotVector() const { return knotVector_; }
+    int degree() const { return degree_; }
+
+private:
+    // Find span such that knotVector_[span] <= t < knotVector_[span+1]
+    int findKnotSpan(Scalar t) const {
+        int n = static_cast<int>(controlPoints_.size());
+        if (t >= knotVector_[n]) return n - 1;
+        if (t <= knotVector_[degree_]) return degree_;
+        int low = degree_, high = n, mid = (low + high) / 2;
+        while (t < knotVector_[mid] || t >= knotVector_[mid + 1]) {
+            if (t < knotVector_[mid])
+                high = mid;
+            else
+                low = mid;
+            mid = (low + high) / 2;
+        }
+        return mid;
+    }
+
+    // Compute nonrational basis functions N[0..degree_] at t
+    std::vector<Scalar> basisFunctions(int span, Scalar t) const {
+        std::vector<Scalar> N(degree_ + 1, Scalar(0));
+        std::vector<Scalar> left(degree_ + 1), right(degree_ + 1);
+        N[0] = Scalar(1);
+        for (int j = 1; j <= degree_; ++j) {
+            left[j] = t - knotVector_[span + 1 - j];
+            right[j] = knotVector_[span + j] - t;
+            Scalar saved = Scalar(0);
+            for (int r = 0; r < j; ++r) {
+                Scalar denom = right[r + 1] + left[j - r];
+                Scalar temp = N[r] / (denom != Scalar(0) ? denom : Scalar(1));
+                N[r] = saved + right[r + 1] * temp;
+                saved = left[j - r] * temp;
+            }
+            N[j] = saved;
+        }
+        return N;
+    }
+
+    // Compute basis functions and their first derivatives at parameter t
+    std::pair<std::vector<Scalar>, std::vector<Scalar>>
+    basisFunctionsAndDerivatives(int span, Scalar t) const {
+        const int p = degree_;
+        std::vector<Scalar> N(p + 1, Scalar(0));
+        std::vector<Scalar> dN(p + 1, Scalar(0));
+        std::vector<Scalar> left(p + 1), right(p + 1);
+
+        N[0] = Scalar(1);
+        for (int j = 1; j <= p; ++j) {
+            left[j] = t - knotVector_[span + 1 - j];
+            right[j] = knotVector_[span + j] - t;
+            Scalar saved = Scalar(0);
+            for (int r = 0; r < j; ++r) {
+                Scalar denom = right[r + 1] + left[j - r];
+                Scalar temp  = N[r] / (denom != Scalar(0) ? denom : Scalar(1));
+                N[r] = saved + right[r + 1] * temp;
+                saved = left[j - r] * temp;
+            }
+            N[j] = saved;
+        }
+
+        // Derivatives (first derivative only)
+        for (int r = 0; r <= p; ++r) {
+            Scalar dr = Scalar(0);
+
+            if (r > 0) {
+                Scalar denom = knotVector_[span + r] - knotVector_[span + r - p];
+                if (std::abs(denom) > Scalar(0)) {
+                    dr += (Scalar)p * N[r - 1] / denom;
+                }
+            }
+            if (r < p) {
+                Scalar denom = knotVector_[span + r + 1] - knotVector_[span + r + 1 - p];
+                if (std::abs(denom) > Scalar(0)) {
+                    dr -= (Scalar)p * N[r] / denom;
+                }
+            }
+            dN[r] = dr;
+        }
+
+        return {N, dN};
+    }
+
+    // Evaluate first derivative C'(t)
+    VecType evaluateDerivative(Scalar t) const {
+        int n = static_cast<int>(controlPoints_.size());
+        if (n == 0 ||
+            weights_.size() != static_cast<std::size_t>(n) ||
+            knotVector_.size() < static_cast<std::size_t>(n + degree_ + 1)) {
+            return VecType::Zero();
+        }
+
+        int span = findKnotSpan(t);
+        auto [N, dN] = basisFunctionsAndDerivatives(span, t);
+
+        VecType Cw = VecType::Zero();   // weighted point sum
+        VecType dCw = VecType::Zero();  // derivative of weighted point sum
+        Scalar  wSum = Scalar(0);
+        Scalar  dwSum = Scalar(0);
+
+        for (int i = 0; i <= degree_; ++i) {
+            int idx = span - degree_ + i;
+            const Scalar w   = weights_[idx];
+            const Scalar Ni  = N[i];
+            const Scalar dNi = dN[i];
+
+            Cw  += (w * Ni) * controlPoints_[idx].coords;
+            dCw += (w * dNi) * controlPoints_[idx].coords;
+            wSum  += w * Ni;
+            dwSum += w * dNi;
+        }
+
+        if (std::abs(wSum) < Scalar(1e-12)) {
+            return VecType::Zero();
+        }
+
+        VecType num = dCw * wSum - Cw * dwSum;
+        Scalar  den = wSum * wSum;
+        return num / den;
+    }
+
+    std::vector<PointType> controlPoints_;
+    std::vector<Scalar> weights_;
+    std::vector<Scalar> knotVector_;
+    int degree_ = 0;
+};
+
 } // namespace Euclid::Geometry

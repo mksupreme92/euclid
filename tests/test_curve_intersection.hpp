@@ -613,6 +613,206 @@ inline void testCurveCurveIntersectionHighDim() {
     std::cout << std::endl;
 }
 
+// ∿ Bezier and NURBS intersection tests
+inline void testBezierNURBSIntersections() {
+    using std::cout;
+    using std::endl;
+    cout << "\n∿ Testing Bezier and NURBS Intersections:\n";
+
+    // ∿ Debugging: Verify toCurve() evaluation output
+    cout << "\n∿ Debugging toCurve() evaluation\n";
+
+    {
+        Bezier<double,2> bez1({{0,0}, {0.5,1}, {1,0}});
+        auto c1 = bez1.toCurve();
+        cout << "Bezier toCurve() sampled points:\n";
+        for (double t = 0; t <= 1.0; t += 0.2) {
+            auto p = c1.evaluate(t);
+            cout << "  t=" << std::setw(6) << std::fixed << std::setprecision(3)
+                 << t << " → (" << p.coords.transpose() << ")\n";
+        }
+
+        double w = std::sqrt(2)/2;
+        std::vector<Point<double,2>> nurbs_pts = { {1,0}, {w,w}, {0,1} };
+        std::vector<double> nurbs_w = {1, w, 1};
+        NURBS<double,2> nurbs1(nurbs_pts, nurbs_w, 2);
+        auto c2 = nurbs1.toCurve();
+        auto [t0, t1] = c2.domain();
+        cout << "\nNURBS toCurve() domain: [" << t0 << ", " << t1 << "]\n";
+        cout << "NURBS toCurve() sampled points:\n";
+        for (double t = t0; t <= t1; t += (t1 - t0)/5.0) {
+            auto p = c2.evaluate(t);
+            cout << "  t=" << std::setw(6) << std::fixed << std::setprecision(3)
+                 << t << " → (" << p.coords.transpose() << ")\n";
+        }
+    }
+
+    // Helper for printing intersection points and parameters
+    auto printPointInfo = [](const auto& result) {
+        for (size_t i = 0; i < result.points.size(); ++i) {
+            const auto& pt = result.points[i];
+            cout << "  Point " << i << ": ("
+                 << std::setw(10) << std::fixed << std::setprecision(6) << pt.coords[0] << ", "
+                 << std::setw(10) << std::fixed << std::setprecision(6) << pt.coords[1] << ")"
+                 << " | Parameters: "
+                 << "u_curve=" << std::setw(10) << std::fixed << std::setprecision(6)
+                 << (i < result.hits.size() ? result.hits[i].u_curve : 0.0) << ", "
+                 << "u_curve2=" << std::setw(10) << std::fixed << std::setprecision(6)
+                 << (i < result.hits.size() ? result.hits[i].u_curve2 : 0.0)
+                 << endl;
+        }
+    };
+
+    // 1. Bezier–Bezier (2D) intersection: two perpendicular quadratic Beziers crossing at (0.5,0.5)
+    cout << "--- Bezier–Bezier (2D) ---" << endl;
+    // Horizontal: (0,0.5) → (0.5,0.5) → (1,0.5)
+    Bezier<double,2> bez1({{0,0.5}, {0.5,0.5}, {1,0.5}});
+    // Vertical: (0.5,0) → (0.5,0.5) → (0.5,1)
+    Bezier<double,2> bez2({{0.5,0}, {0.5,0.5}, {0.5,1}});
+    auto resultBB = intersect(bez1, bez2);
+    cout << "Number of intersection points: " << resultBB.points.size() << endl;
+    printPointInfo(resultBB);
+    // Should find exactly one intersection at (0.5, 0.5) with both parameters ≈ 0.5
+    bool okBB = false;
+    if (resultBB.points.size() == 1) {
+        const auto& pt = resultBB.points[0];
+        const auto& hit = resultBB.hits[0];
+        bool locOk = (pt.coords - Eigen::Vector2d(0.5,0.5)).norm() < 1e-4;
+        bool u1Ok = std::abs(hit.u_curve  - 0.5) < 1e-4;
+        bool u2Ok = std::abs(hit.u_curve2 - 0.5) < 1e-4;
+        okBB = locOk && u1Ok && u2Ok;
+    }
+    if (!okBB) {
+        cout << "❌ Bezier–Bezier intersection: expect 1 at (0.5, 0.5)" << endl;
+    }
+    printTest("Bezier–Bezier intersection: expect 1 at (0.5,0.5)", okBB);
+    cout << "----------------------------------------" << endl;
+
+    // 2. Bezier–NURBS (2D): NURBS is a quarter-circle, Bezier shares its endpoints
+    cout << "--- Bezier–NURBS (2D) ---" << endl;
+    // NURBS: quarter circle from (1,0) to (0,1), via (sqrt(2)/2, sqrt(2)/2), weights = [1, sqrt(2)/2, 1]
+    double w = std::sqrt(2)/2;
+    std::vector<Point<double,2>> nurbs_pts = { {1,0}, {w,w}, {0,1} };
+    std::vector<double> nurbs_w = {1, w, 1};
+    NURBS<double,2> nurbs1(nurbs_pts, nurbs_w, 2);
+    // Bezier: quadratic with endpoints matching the NURBS: (1,0), (0.5,0.5), (0,1)
+    Bezier<double,2> bez_diag({{1,0}, {0.5,0.5}, {0,1}});
+    auto resultBN = intersect(bez_diag, nurbs1);
+    cout << "Number of intersection points: " << resultBN.points.size() << endl;
+    printPointInfo(resultBN);
+    // Find intersection closest to (1,0)
+    double minDist = 1e9;
+    //size_t minIdx = 0;
+    for (size_t i = 0; i < resultBN.points.size(); ++i) {
+        double d = (resultBN.points[i].coords - Eigen::Vector2d(1,0)).norm();
+        if (d < minDist) {
+            minDist = d;
+            //minIdx = i;
+        }
+    }
+    bool okBN = false;
+    if (resultBN.points.size() >= 1) {
+        okBN = minDist < 1e-4;
+    }
+    if (!okBN) {
+        cout << "❌ Bezier–NURBS intersection: expect ≥1 at (1, 0)" << endl;
+    }
+    printTest("Bezier–NURBS intersection: expect ≥1 at (1,0)", okBN);
+    cout << "----------------------------------------" << endl;
+
+    // 3. NURBS–NURBS (2D): two quarter circles intersecting at (1,0)
+    cout << "--- NURBS–NURBS (2D) ---" << endl;
+    // First quarter circle: (1,0) → (w,w) → (0,1)
+    NURBS<double,2> nurbsA(nurbs_pts, nurbs_w, 2);
+    // Second quarter circle: shifted *left* by 0.5: (1.0,0) → (-0.5+w,w) → (-0.5,1)
+    std::vector<Point<double,2>> nurbs_pts2 = { {1.0,0}, {w-0.5,w}, {-0.5,1} };
+    NURBS<double,2> nurbsB(nurbs_pts2, nurbs_w, 2);
+    auto resultNN = intersect(nurbsA, nurbsB);
+    cout << "Number of intersection points: " << resultNN.points.size() << endl;
+    printPointInfo(resultNN);
+    // The intersection should be at (1,0)
+    bool foundNN = false;
+    for (const auto& pt : resultNN.points) {
+        if ((pt.coords - Eigen::Vector2d(1,0)).norm() < 1e-6)
+            foundNN = true;
+    }
+    printTest("NURBS–NURBS intersection: expect 1 at (1,0)", resultNN.points.size() == 1 && foundNN);
+    cout << "----------------------------------------" << endl;
+
+    // 4. Higher-Dimensional Bezier and NURBS Intersections
+    cout << "--- Higher-Dimensional Bezier and NURBS Intersections ---" << endl;
+
+    // 4A. Bezier–Bezier (3D)
+    cout << "--- Bezier–Bezier (3D) ---" << endl;
+    Bezier<double,3> bez3A({{0,0,0}, {0.5,0.5,0.0}, {1,0,0}});
+    Bezier<double,3> bez3B({{0.5,-0.5,0.0}, {0.5,0.0,0.0}, {0.5,0.5,0.0}});
+    auto resultBB3D = intersect(bez3A, bez3B);
+    cout << "Number of intersection points: " << resultBB3D.points.size() << endl;
+    // Print 3D points:
+    for (size_t i = 0; i < resultBB3D.points.size(); ++i) {
+        const auto& pt = resultBB3D.points[i];
+        cout << "  Point " << i << ": ("
+             << std::setw(10) << std::fixed << std::setprecision(6) << pt.coords[0] << ", "
+             << std::setw(10) << std::fixed << std::setprecision(6) << pt.coords[1] << ", "
+             << std::setw(10) << std::fixed << std::setprecision(6) << pt.coords[2] << ")"
+             << " | Parameters: "
+             << "u_curve=" << std::setw(10) << std::fixed << std::setprecision(6)
+             << (i < resultBB3D.hits.size() ? resultBB3D.hits[i].u_curve : 0.0) << ", "
+             << "u_curve2=" << std::setw(10) << std::fixed << std::setprecision(6)
+             << (i < resultBB3D.hits.size() ? resultBB3D.hits[i].u_curve2 : 0.0)
+             << endl;
+    }
+    printTest("Bezier–Bezier (3D): expect 1 intersection near (0.5,0,0)", resultBB3D.points.size() == 1);
+
+    // 4B. NURBS–NURBS (3D)
+    cout << "--- NURBS–NURBS (3D) ---" << endl;
+    double w3 = std::sqrt(2)/2;
+    std::vector<Point<double,3>> nurbs3_ptsA = { {1,0,0}, {w3,w3,0}, {0,1,0} };
+    std::vector<Point<double,3>> nurbs3_ptsB = { {1,0,0}, {w3,w3,0.2}, {0,1,0.2} };
+    std::vector<double> nurbs3_w = {1, w3, 1};
+    NURBS<double,3> nurbs3A(nurbs3_ptsA, nurbs3_w, 2);
+    NURBS<double,3> nurbs3B(nurbs3_ptsB, nurbs3_w, 2);
+    auto resultNN3D = intersect(nurbs3A, nurbs3B);
+    cout << "Number of intersection points: " << resultNN3D.points.size() << endl;
+    for (size_t i = 0; i < resultNN3D.points.size(); ++i) {
+        const auto& pt = resultNN3D.points[i];
+        cout << "  Point " << i << ": ("
+             << std::setw(10) << std::fixed << std::setprecision(6) << pt.coords[0] << ", "
+             << std::setw(10) << std::fixed << std::setprecision(6) << pt.coords[1] << ", "
+             << std::setw(10) << std::fixed << std::setprecision(6) << pt.coords[2] << ")"
+             << " | Parameters: "
+             << "u_curve=" << std::setw(10) << std::fixed << std::setprecision(6)
+             << (i < resultNN3D.hits.size() ? resultNN3D.hits[i].u_curve : 0.0) << ", "
+             << "u_curve2=" << std::setw(10) << std::fixed << std::setprecision(6)
+             << (i < resultNN3D.hits.size() ? resultNN3D.hits[i].u_curve2 : 0.0)
+             << endl;
+    }
+    printTest("NURBS–NURBS (3D): expect ≥1 intersection near (1,0,0)", resultNN3D.points.size() >= 1);
+
+    // 4C. Bezier–NURBS (3D)
+    cout << "--- Bezier–NURBS (3D) ---" << endl;
+    Bezier<double,3> bez3C({{1,0,0}, {0.5,0.5,0}, {0,1,0}});
+    NURBS<double,3> nurbs3C(nurbs3_ptsA, nurbs3_w, 2);
+    auto resultBN3D = intersect(bez3C, nurbs3C);
+    cout << "Number of intersection points: " << resultBN3D.points.size() << endl;
+    for (size_t i = 0; i < resultBN3D.points.size(); ++i) {
+        const auto& pt = resultBN3D.points[i];
+        cout << "  Point " << i << ": ("
+             << std::setw(10) << std::fixed << std::setprecision(6) << pt.coords[0] << ", "
+             << std::setw(10) << std::fixed << std::setprecision(6) << pt.coords[1] << ", "
+             << std::setw(10) << std::fixed << std::setprecision(6) << pt.coords[2] << ")"
+             << " | Parameters: "
+             << "u_curve=" << std::setw(10) << std::fixed << std::setprecision(6)
+             << (i < resultBN3D.hits.size() ? resultBN3D.hits[i].u_curve : 0.0) << ", "
+             << "u_curve2=" << std::setw(10) << std::fixed << std::setprecision(6)
+             << (i < resultBN3D.hits.size() ? resultBN3D.hits[i].u_curve2 : 0.0)
+             << endl;
+    }
+    printTest("Bezier–NURBS (3D): expect ≥1 intersection near (1,0,0)", resultBN3D.points.size() >= 1);
+
+    cout << "----------------------------------------" << endl;
+}
+
 // ∿ Curve–Plane intersection test (stub)
 inline void testCurvePlaneIntersection() {
     std::cout << "∿ testCurvePlaneIntersection: ";
@@ -635,6 +835,7 @@ inline void testCurveSurfaceIntersection() {
 inline void testCurveIntersection() {
     testCurveCurveIntersection();
     testCurveCurveIntersectionHighDim();
+    testBezierNURBSIntersections();
     testCurvePlaneIntersection();
     testCurveFaceIntersection();
     testCurveSurfaceIntersection();

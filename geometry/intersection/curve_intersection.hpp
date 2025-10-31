@@ -25,20 +25,6 @@ IntersectionResult<T, N> intersect(
     // 1. basic bbox and scale ---------------------------------------------
     auto [min1, max1] = c1.boundingBox();
     auto [min2, max2] = c2.boundingBox();
-    
-    /*
-    std::cout << "[CC-DEBUG] c1 bbox: min=(";
-    for (int i = 0; i < N; ++i) std::cout << min1.coords[i] << (i+1<N?", ":")");
-    std::cout << ", max=(";
-    for (int i = 0; i < N; ++i) std::cout << max1.coords[i] << (i+1<N?", ":")");
-    std::cout << ")\n";
-
-    std::cout << "[CC-DEBUG] c2 bbox: min=(";
-    for (int i = 0; i < N; ++i) std::cout << min2.coords[i] << (i+1<N?", ":")");
-    std::cout << ", max=(";
-    for (int i = 0; i < N; ++i) std::cout << max2.coords[i] << (i+1<N?", ":")");
-    std::cout << ")\n";
-     */
 
     // world-ish scale from both boxes
     T maxCoord = T(0);
@@ -49,7 +35,7 @@ IntersectionResult<T, N> intersect(
         maxCoord = std::max(maxCoord, std::abs(max2.coords[i]));
     }
     T worldEps = tol.evaluateEpsilon(maxCoord);
-
+    // Define boxesOverlap lambda before any use
     auto boxesOverlap = [&](const Point<T, N>& aMin, const Point<T, N>& aMax,
                             const Point<T, N>& bMin, const Point<T, N>& bMax) -> bool {
         for (int i = 0; i < N; ++i) {
@@ -69,6 +55,7 @@ IntersectionResult<T, N> intersect(
     // 2. parameter domains -------------------------------------------------
     auto [t1_min, t1_max] = c1.domain();
     auto [t2_min, t2_max] = c2.domain();
+
 
     // 3. adaptive sampler --------------------------------------------------
     // we keep two samplers, one for each curve, each starting with a coarse grid and
@@ -169,10 +156,6 @@ IntersectionResult<T, N> intersect(
                 }
                 bool curvatureSignFlip = (kappaA * kappaB) < 0;
 
-                if (curvatureSignFlip) {
-                    // Debug print to trace sign flips
-                    // std::cout << "[CC-DEBUG] curvature sign flip detected in [" << a << ", " << b << "]\n";
-                }
 
                 // local geometric scale for tolerance
                 T localScale = std::max({pA.coords.cwiseAbs().maxCoeff(),
@@ -184,14 +167,6 @@ IntersectionResult<T, N> intersect(
                 // radians and length are different units, so give curvature a generous multiplier
                 T curvatureTol = localEps * T(400); // <<-- geometry/tol based;
 
-                /*
-                std::cout << "[CC-DEBUG] refineSegments: a=" << a << ", b=" << b
-                          << ", dev=" << dev
-                          << ", curvature=" << curvatureMeasure
-                          << ", localEps=" << localEps
-                          << ", curvatureTol=" << curvatureTol
-                          << "\n";
-                 */
 
                 bool needsSplit = false;
 
@@ -277,13 +252,17 @@ IntersectionResult<T, N> intersect(
     // helper to refine inside a param-rect until close or limit reached
     std::function<void(T, T, T, T, int)> refineCell;
     refineCell = [&](T a1, T b1, T a2, T b2, int depth) {
-        /*
-        // std::cout << "[CC-DEBUG] refineCell depth=" << depth
-        //           << " | u1 in [" << a1 << ", " << b1 << "]"
-        //           << " | u2 in [" << a2 << ", " << b2 << "]" << "\n";
-         */
-
-        if (depth > 4) return; // safety
+        // hard safety guards to prevent runaway recursion / bad params
+        if (std::isnan(a1) || std::isnan(b1) || std::isnan(a2) || std::isnan(b2))
+            return;
+        if (depth > 10)
+            return;
+        // --- midpoint degeneracy guard ---
+        T m1 = std::midpoint(a1, b1);
+        T m2 = std::midpoint(a2, b2);
+        // Prevent degenerate recursion where midpoint equals an endpoint
+        if (m1 == a1 || m1 == b1 || m2 == a2 || m2 == b2)
+            return;
         // sample 3x3 inside cell
         constexpr int S = 3;
         T bestD = std::numeric_limits<T>::max();
@@ -305,22 +284,26 @@ IntersectionResult<T, N> intersect(
                 }
             }
         }
-        /*
-        // std::cout << "[CC-DEBUG] refineCell bestD=" << bestD
-        //           << " at (u1=" << bestU1 << ", u2=" << bestU2 << ")"
-        //           << " p1=(";
-        // for (int i = 0; i < N; ++i) std::cout << bestP1.coords[i] << (i+1<N?", ":")");
-        // std::cout << ", p2=(";
-        // for (int i = 0; i < N; ++i) std::cout << bestP2.coords[i] << (i+1<N?", ":")");
-        // std::cout << ")\n";
-         */
 
         // compute local eps from the best pair
         T localScale = std::max(bestP1.coords.cwiseAbs().maxCoeff(), bestP2.coords.cwiseAbs().maxCoeff());
         T eps = tol.evaluateEpsilon(localScale);
-        if (bestD <= eps * T(2)) {
+        if (bestD <= eps * T(4)) {
             tryAddHit(bestU1, bestP1, bestU2, bestP2);
             return;
+        }
+        // --- Secondary interior hit criterion (absolute fallback) ---
+        // If both parameters are within the interior domain and distance is small
+        // relative to absolute scale (~1e-3), register a hit even if tolerance test fails.
+        {
+            bool interior = (bestU1 > (t1_min + T(0.05) * (t1_max - t1_min))) &&
+                            (bestU1 < (t1_max - T(0.05) * (t1_max - t1_min))) &&
+                            (bestU2 > (t2_min + T(0.05) * (t2_max - t2_min))) &&
+                            (bestU2 < (t2_max - T(0.05) * (t2_max - t2_min)));
+            if (interior && bestD < T(1e-3)) {
+                tryAddHit(bestU1, bestP1, bestU2, bestP2);
+                return;
+            }
         }
         // --- geometric / tolerance-based refinement threshold ---
         // We want to avoid hard-coded param thresholds like 1e-3.
@@ -341,13 +324,14 @@ IntersectionResult<T, N> intersect(
             }
         }
         T cellTol = tol.evaluateEpsilon(cellGeoScale);
+        // Inserted: stagnation guard for bestD
+        static thread_local T lastBestD_local = std::numeric_limits<T>::max();
+        if (std::abs(bestD - lastBestD_local) < tol.evaluateEpsilon(cellGeoScale)) {
+            tryAddHit(bestU1, bestP1, bestU2, bestP2);
+            return;
+        }
+        lastBestD_local = bestD;
 
-        /*
-        // std::cout << "[CC-DEBUG] cellGeoScale=" << cellGeoScale
-        //           << ", cellTol=" << cellTol
-        //           << ", paramSize1=" << (b1 - a1)
-        //           << ", paramSize2=" << (b2 - a2) << "\n";
-         */
 
         // --- Adaptive parameter cell stopping condition based on local curvature and tolerance ---
         // Compute local curvature scale and adapt parametric tolerances accordingly.
@@ -362,6 +346,18 @@ IntersectionResult<T, N> intersect(
                       (std::max<T>(cellGeoScale, T(1)) * curvatureScale1);
         T paramTol2 = tol.evaluateEpsilon(cellGeoScale) /
                       (std::max<T>(cellGeoScale, T(1)) * curvatureScale2);
+        // Guard against bad/NaN tolerances
+        if (!std::isfinite(paramTol1) || !std::isfinite(paramTol2) ||
+            paramTol1 <= T(0) || paramTol2 <= T(0)) {
+            // fall back to splitting once and returning
+            T m1 = (a1 + b1) / T(2);
+            T m2 = (a2 + b2) / T(2);
+            if (depth + 1 <= 10) {
+                refineCell(a1, m1, a2, m2, depth + 1);
+                refineCell(m1, b1, m2, b2, depth + 1);
+            }
+            return;
+        }
         // Clamp tolerances to reasonable domain fractions
         T domainLen1 = (t1_max - t1_min);
         T domainLen2 = (t2_max - t2_min);
@@ -389,17 +385,13 @@ IntersectionResult<T, N> intersect(
             T diff_a = p1a_.coords[domAxis] - p2a_.coords[domAxis];
             T diff_b = p1b_.coords[domAxis] - p2b_.coords[domAxis];
 
-            // Detect if difference changes sign → likely a crossing
-            if ((diff_a * diff_b) < 0) {
+            // Detect if difference changes sign or is near zero → likely a crossing or flat crossing
+            if ((diff_a * diff_b) < 0 || std::abs(diff_a * diff_b) < tol.evaluateEpsilon(cellGeoScale)) {
                 // Debug print for traceability
                 
-                /*
-                // std::cout << "[CC-DEBUG] distance sign change detected between u1=["
-                //           << a1 << "," << b1 << "], u2=[" << a2 << "," << b2 << "]\n";
-                 */
                 signFlip = true;  // trigger refinement even if curvature looks smooth
                 // Force extra refinement on detected crossing
-                if (depth < 6) {
+                if (depth < 10) {
                     T mid1 = (a1 + b1) / T(2);
                     T mid2 = (a2 + b2) / T(2);
                     refineCell(a1, mid1, a2, mid2, depth + 1);
@@ -416,6 +408,9 @@ IntersectionResult<T, N> intersect(
         T sd11 = p1b.coords[axis] - p2b.coords[axis];
         if ((sd00 * sd01 < T(0)) || (sd00 * sd10 < T(0)) || (sd01 * sd11 < T(0)) || (sd10 * sd11 < T(0))) {
             signFlip = true;
+            if (depth >= 12) {
+                return; // stop exploding on oscillatory cells
+            }
         }
 
         // Additional explicit y-axis sign flip check for N == 2
@@ -424,26 +419,27 @@ IntersectionResult<T, N> intersect(
             T y01 = p1a.coords[1] - p2b.coords[1];
             T y10 = p1b.coords[1] - p2a.coords[1];
             T y11 = p1b.coords[1] - p2b.coords[1];
-            if ((y00 * y01 < T(0)) || (y00 * y10 < T(0)) || (y01 * y11 < T(0)) || (y10 * y11 < T(0))) {
+            if ((y00 * y01 < T(0)) || (y00 * y10 < T(0)) || (y01 * y11 < T(0)) || (y10 * y11 < T(0)) ||
+                std::abs(y00 * y01) < tol.evaluateEpsilon(cellGeoScale) ||
+                std::abs(y00 * y10) < tol.evaluateEpsilon(cellGeoScale) ||
+                std::abs(y01 * y11) < tol.evaluateEpsilon(cellGeoScale) ||
+                std::abs(y10 * y11) < tol.evaluateEpsilon(cellGeoScale)) {
                 signFlip = true;
             }
         }
 
         if (signFlip) {
-            /*
-            // std::cout << "[CC-DEBUG] signFlip detected in cell depth=" << depth << " -> forcing split\n";
-             */
             // Localized micro-refinement via 1D bisection if recursion is deep
             if (depth >= 4) {
                 // Perform localized micro-refinement via 1D bisection
                 T ua = a1, ub = b1;
-                for (int i = 0; i < 10; ++i) {
+                for (int i = 0; i < 6; ++i) {
                     T umid = (ua + ub) / T(2);
                     auto p1a = c1.evaluate(ua);
                     auto p1b = c1.evaluate(ub);
                     auto p1m = c1.evaluate(umid);
                     auto p2a = c2.evaluate(ua);
-                    auto p2b = c2.evaluate(ub);
+                    // auto p2b = c2.evaluate(ub); // unused variable, removed to avoid warning
                     auto p2m = c2.evaluate(umid);
                     int axis = dominantAxis(p1a, p1b);
                     T diff_a = p1a.coords[axis] - p2a.coords[axis];
@@ -478,16 +474,43 @@ IntersectionResult<T, N> intersect(
             }
         }
 
+        // --- SAFETY BLOCK: Prevent runaway refinement and stagnation ---
+        // Pathological recursion diagnostic counters and guards
+        static thread_local int totalCells = 0;
+        ++totalCells;
+        if (totalCells > 200000) {
+            return; // hard cap to prevent infinite refine in debug-less builds
+        }
+        // prevent infinite refinement in oscillatory cases (e.g., sinusoidal crossings)
+        if (depth > 12) return;
+
+        // guard against zero-width subintervals caused by rounding
+        if ((b1 - a1) < std::numeric_limits<T>::epsilon() ||
+            (b2 - a2) < std::numeric_limits<T>::epsilon()) return;
+
+        // detect lack of geometric progress (no improvement)
+        static thread_local int stagnationCounter = 0;
+        static thread_local T lastBestD = std::numeric_limits<T>::max();
+        if (std::abs(bestD - lastBestD) < tol.evaluateEpsilon(cellGeoScale) * T(0.5)) {
+            if (++stagnationCounter > 200) return;
+        } else {
+            stagnationCounter = 0;
+        }
+        lastBestD = bestD;
+
         // NOTE: this descent is what lets us discover mid-domain roots like the y=0 crossings
         // of a sinusoid against a flat curve. Without it we only see endpoints.
         if ((!paramSmallEnough && !distGoodEnough) || signFlip || tolRequiresSplit) {
-            T m1 = (a1 + b1) / T(2);
-            T m2 = (a2 + b2) / T(2);
-            refineCell(a1, m1, a2, m2, depth + 1);
-            refineCell(a1, m1, m2, b2, depth + 1);
-            refineCell(m1, b1, a2, m2, depth + 1);
-            // // std::cout << "[CC-DEBUG] -> Q4 (tol / sign / param split)\n";
-            refineCell(m1, b1, m2, b2, depth + 1);
+            if (depth + 1 <= 10) {
+                T m1 = (a1 + b1) / T(2);
+                T m2 = (a2 + b2) / T(2);
+                refineCell(a1, m1, a2, m2, depth + 1);
+                if (bestD > eps * T(4)) {
+                    refineCell(a1, m1, m2, b2, depth + 1);
+                    refineCell(m1, b1, a2, m2, depth + 1);
+                    refineCell(m1, b1, m2, b2, depth + 1);
+                }
+            }
         }
     };
 
@@ -508,17 +531,13 @@ IntersectionResult<T, N> intersect(
                 seg2Min.coords[k] = std::min(p2a.coords[k], p2b.coords[k]);
                 seg2Max.coords[k] = std::max(p2a.coords[k], p2b.coords[k]);
             }
-            if (boxesOverlap(seg1Min, seg1Max, seg2Min, seg2Max)) {
-                /*
-                // std::cout << "[CC-DEBUG] seg-pair overlap: u1=[" << s1.a << ", " << s1.b
-                //           << "], u2=[" << s2.a << ", " << s2.b << "]" << "\n";
-                 */
+            bool overlap = boxesOverlap(seg1Min, seg1Max, seg2Min, seg2Max);
+            if (overlap) {
                 refineCell(s1.a, s1.b, s2.a, s2.b, 0);
             }
         }
     }
 
-    // final fallback: if still empty but top-level boxes overlapped, check mid-params once
     if (result.hits.empty() && boxesOverlap(min1, max1, min2, max2)) {
         T mid1 = (t1_min + t1_max) / T(2);
         T mid2 = (t2_min + t2_max) / T(2);
@@ -552,8 +571,6 @@ IntersectionResult<T, N> intersect(
             // Overlap detected: continuous intersection region found.
             // Currently, IntersectionResult does not carry overlap metadata.
             // This is a future extension point: store overlap info when supported.
-            // std::cout << "[DEBUG] Overlap detected between curves — potential continuous intersection curve.\n";
-            // NOTE: Future phase will store param intervals and construct overlap curve here.
         }
     }
     else {
@@ -571,21 +588,35 @@ IntersectionResult<T, N> intersect(
             }
         }
         if (closeSamples == sampleCount) {
-            // std::cout << "[DEBUG] Overlap detected between curves — curves are coincident within tolerance.\n";
         }
     }
 
-    /*
-    // std::cout << "[CC-DEBUG] final hits: " << result.hits.size() << "\n";
-     */
-    // for (size_t i = 0; i < result.hits.size(); ++i) {
-    //     std::cout << "  [" << i << "] u1=" << result.hits[i].u_curve
-    //               << ", u2=" << result.hits[i].u_curve2 << ", p=(";
-    //     for (int k = 0; k < N; ++k) std::cout << result.hits[i].p.coords[k] << (k+1<N?", ":")");
-    //     std::cout << ")\n";
-    // }
 
     return result;
+}
+
+
+// --- Generic Curve-Like Intersection Overload (Bezier, NURBS, etc.) ---
+template <typename C, int N>
+concept CurveLike = requires(C obj) {
+    typename C::ScalarType;
+    { obj.toCurve() } -> std::same_as<Curve<typename C::ScalarType, N>>;
+};
+
+
+// --- SFINAE-based Curve-Like Intersection Overload (Bezier, NURBS, etc.) ---
+template <typename X, typename = void>
+struct has_toCurve : std::false_type {};
+
+template <typename X>
+struct has_toCurve<X, std::void_t<decltype(std::declval<const X&>().toCurve())>> : std::true_type {};
+
+template <typename C1, typename C2,
+          std::enable_if_t<has_toCurve<C1>::value && has_toCurve<C2>::value, int> = 0>
+auto intersect(const C1& a, const C2& b)
+    -> decltype(intersect(a.toCurve(), b.toCurve()))
+{
+    return intersect(a.toCurve(), b.toCurve());
 }
 
 } // namespace Geometry
