@@ -32,8 +32,8 @@ struct CurveSampleCache {
         Eigen::Matrix<T, N, 1> d1;
         Eigen::Matrix<T, N, 1> d2;
     };
-    std::array<Entry, 64> data;
-    std::array<long long, 64> keys;
+    std::array<Entry, 256> data;
+    std::array<long long, 256> keys;
     int pos = 0;
     int hits = 0;
     int misses = 0;
@@ -104,26 +104,29 @@ IntersectionResult<T, N> intersect(
     auto getSample = [&](const Curve<T, N>& c,
                          CurveSampleCache<T, N>& cache,
                          T t, T tMin, T tMax) -> const typename CurveSampleCache<T, N>::Entry& {
-        constexpr T q = 1e6;
-        long long key = static_cast<long long>(((t - tMin) / (tMax - tMin)) * q);
-        // Linear scan for key
-        for (int i = 0; i < 64; ++i) {
-            if (cache.keys[i] == key) {
-                ++cache.hits;
-                return cache.data[i];
-            }
+        // Quantize parameter to 1e-6 over the domain and map to 256-slot cache
+        constexpr int kSlots = 256;
+        constexpr int kMask  = kSlots - 1; // 255
+        const T span = (tMax - tMin);
+        // Guard against zero-length domain
+        T u = span > T(0) ? (t - tMin) / span : T(0);
+        if (u < T(0)) u = T(0);
+        if (u > T(1)) u = T(1);
+        long long key = static_cast<long long>(u * 1'000'000); // quantized key
+        int idx = static_cast<int>(key) & kMask;
+        if (cache.keys[idx] == key) {
+            ++cache.hits;
+            return cache.data[idx];
         }
         ++cache.misses;
-        // Insert/overwrite at pos
+        // Miss: evaluate once and overwrite slot
         typename CurveSampleCache<T, N>::Entry e;
         e.pos = c.evaluate(t);
         e.d1  = c.evaluateDerivativeCached(t);
         e.d2  = c.evaluateSecondDerivative(t);
-        cache.data[cache.pos] = std::move(e);
-        cache.keys[cache.pos] = key;
-        int retPos = cache.pos;
-        cache.pos = (cache.pos + 1) % 64;
-        return cache.data[retPos];
+        cache.data[idx] = std::move(e);
+        cache.keys[idx] = key;
+        return cache.data[idx];
     };
 
 
@@ -165,7 +168,7 @@ IntersectionResult<T, N> intersect(
         while (changed && iter++ < maxIter) {
             changed = false;
             std::vector<ParamSeg> next;
-            next.reserve(segs.size() * 2);
+            next.reserve(segs.size() * 2); // reserve up-front to avoid repeated reallocations
 
             for (auto& s : segs) {
                 T a = s.a;
@@ -340,6 +343,29 @@ IntersectionResult<T, N> intersect(
     T lastBestD_local = std::numeric_limits<T>::max();
     std::function<void(T, T, T, T, int)> refineCell;
     refineCell = [&](T a1, T b1, T a2, T b2, int depth) {
+        // --- Per-cell local sample cache to avoid redundant derivative/curvature evaluations ---
+        struct LocalSample {
+            T t;
+            typename CurveSampleCache<T, N>::Entry e;
+        };
+        LocalSample localCache1[9];
+        LocalSample localCache2[9];
+        int localCount1 = 0;
+        int localCount2 = 0;
+
+        auto getLocalSample = [&](const Curve<T, N>& c,
+                                  CurveSampleCache<T, N>& cache,
+                                  LocalSample* localCache, int& localCount,
+                                  T t, T tMin, T tMax)
+            -> const typename CurveSampleCache<T, N>::Entry& {
+            for (int i = 0; i < localCount; ++i) {
+                if (std::abs(localCache[i].t - t) < T(1e-12))
+                    return localCache[i].e;
+            }
+            const auto& entry = getSample(c, cache, t, tMin, tMax);
+            localCache[localCount++] = {t, entry};
+            return localCache[localCount - 1].e;
+        };
         // Micro-cache lookup
         constexpr T eps_param = T(1e-10);
         int cacheHitIdx = -1;
@@ -405,11 +431,11 @@ IntersectionResult<T, N> intersect(
         Point<T, N> bestP1, bestP2;
         for (int i = 0; i < S; ++i) {
             T u1 = a1 + (b1 - a1) * T(i) / T(S - 1);
-            auto s1 = getSample(c1, cache1, u1, t1_min, t1_max);
+            auto s1 = getLocalSample(c1, cache1, localCache1, localCount1, u1, t1_min, t1_max);
             auto p1 = s1.pos;
             for (int j = 0; j < S; ++j) {
                 T u2 = a2 + (b2 - a2) * T(j) / T(S - 1);
-                auto s2 = getSample(c2, cache2, u2, t2_min, t2_max);
+                auto s2 = getLocalSample(c2, cache2, localCache2, localCount2, u2, t2_min, t2_max);
                 auto p2 = s2.pos;
                 T d = (p1 - p2).norm();
                 if (d < bestD) {
@@ -456,10 +482,10 @@ IntersectionResult<T, N> intersect(
         // Instead, derive an effective spatial scale from the curve values at the cell corners
         // and compare against the tolerance model. If the cell is already small enough in
         // parameter *and* the spatial separation isn't improving, we stop.
-        auto s1a = getSample(c1, cache1, a1, t1_min, t1_max);
-        auto s1b = getSample(c1, cache1, b1, t1_min, t1_max);
-        auto s2a = getSample(c2, cache2, a2, t2_min, t2_max);
-        auto s2b = getSample(c2, cache2, b2, t2_min, t2_max);
+        auto s1a = getLocalSample(c1, cache1, localCache1, localCount1, a1, t1_min, t1_max);
+        auto s1b = getLocalSample(c1, cache1, localCache1, localCount1, b1, t1_min, t1_max);
+        auto s2a = getLocalSample(c2, cache2, localCache2, localCount2, a2, t2_min, t2_max);
+        auto s2b = getLocalSample(c2, cache2, localCache2, localCount2, b2, t2_min, t2_max);
         auto p1a = s1a.pos; auto p1b = s1b.pos;
         auto p2a = s2a.pos; auto p2b = s2b.pos;
         T cellGeoScale = T(0);
@@ -488,8 +514,8 @@ IntersectionResult<T, N> intersect(
         //
         // Compute curvature scales
         // Use tol.evaluateEpsilon(cellGeoScale) as fallback for curvature denominator
-        T curvatureScale1 = 1 / (std::abs(getSample(c1, cache1, bestU1, t1_min, t1_max).d2.norm()) + tol.evaluateEpsilon(cellGeoScale));
-        T curvatureScale2 = 1 / (std::abs(getSample(c2, cache2, bestU2, t2_min, t2_max).d2.norm()) + tol.evaluateEpsilon(cellGeoScale));
+        T curvatureScale1 = 1 / (std::abs(getLocalSample(c1, cache1, localCache1, localCount1, bestU1, t1_min, t1_max).d2.norm()) + tol.evaluateEpsilon(cellGeoScale));
+        T curvatureScale2 = 1 / (std::abs(getLocalSample(c2, cache2, localCache2, localCount2, bestU2, t2_min, t2_max).d2.norm()) + tol.evaluateEpsilon(cellGeoScale));
         // Compute adaptive parametric tolerances
         T paramTol1 = tol.evaluateEpsilon(cellGeoScale) /
                       (std::max<T>(cellGeoScale, T(1)) * curvatureScale1);
@@ -755,6 +781,7 @@ IntersectionResult<T, N> intersect(
     }
 
 
+#ifdef EUCLID_DEBUG_TIMING_INTERSECT
     {
         auto dumpCache = [&](const char* name, const auto& c) {
             long long total = c.hits + c.misses;
@@ -772,6 +799,7 @@ IntersectionResult<T, N> intersect(
         intersectTimingBuffer.str(""); // clear
         intersectTimingBuffer.clear();
     }
+#endif
     return result;
 }
 
