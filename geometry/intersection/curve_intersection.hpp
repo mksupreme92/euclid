@@ -159,9 +159,11 @@ IntersectionResult<T, N> intersect(
     // const T targetSpatial = worldEps * T(2);
 
     // function: refine a set of segments until each segment is "flat enough"
+    // Optionally records segment endpoints for later reuse.
     auto refineSegments = [&](const Curve<T, N>& cv, std::vector<ParamSeg>& segs,
                               CurveSampleCache<T, N>& cache,
-                              T tMin, T tMax) {
+                              T tMin, T tMax,
+                              std::vector<std::pair<Point<T, N>, Point<T, N>>>* segmentEndpoints = nullptr) {
         bool changed = true;
         int iter = 0;
         const int maxIter = 7; // allow a few more passes for wavy curves
@@ -169,6 +171,7 @@ IntersectionResult<T, N> intersect(
             changed = false;
             std::vector<ParamSeg> next;
             next.reserve(segs.size() * 2); // reserve up-front to avoid repeated reallocations
+            if (segmentEndpoints) segmentEndpoints->clear();
 
             for (auto& s : segs) {
                 T a = s.a;
@@ -211,8 +214,8 @@ IntersectionResult<T, N> intersect(
                 T maxAngle = T(0);
                 // Use cached derivative evaluations for efficiency within this segment
                 auto prevDir = safeNorm(getSample(cv, cache, a, tMin, tMax).d1);
-                for (int s = 1; s < samples; ++s) {
-                    T t = a + (b - a) * (T(s) / (samples - 1));
+                for (int sidx = 1; sidx < samples; ++sidx) {
+                    T t = a + (b - a) * (T(sidx) / (samples - 1));
                     auto dir = safeNorm(getSample(cv, cache, t, tMin, tMax).d1);
                     T dotVal = std::clamp(prevDir.dot(dir), T(-1), T(1));
                     T ang = std::acos(dotVal);
@@ -272,22 +275,58 @@ IntersectionResult<T, N> intersect(
                     }
                 }
 
+                if (!needsSplit) {
+                    // refresh scale for mildly curved segments so later stages get a better local scale
+                    if (curvatureMeasure > curvatureTol * T(0.5)) {
+                        s.scale = std::max(s.scale, localScale);
+                    }
+                }
+
                 if (needsSplit) {
                     next.push_back({a, m, estimateCurveScale(cv, a, m)});
                     next.push_back({m, b, estimateCurveScale(cv, m, b)});
                     changed = true;
                 } else {
-                    s.scale = localScale;
+                    // For unsplit segments, preserve the existing scale
+                    // (do not recompute; keep s.scale as is).
+                    // If this is the first refinement, s.scale is already set.
+                    // If not, s.scale is preserved.
+                    // For safety, ensure s.scale is not zero (fallback to localScale if so)
+                    if (s.scale == T(0)) s.scale = localScale;
                     next.push_back(s);
                 }
             }
-
             segs.swap(next);
+        }
+        // After refinement, rebuild endpoints if requested
+        if (segmentEndpoints) {
+            segmentEndpoints->clear();
+            segmentEndpoints->reserve(segs.size());
+            for (const auto& s : segs) {
+                const auto& sA = getSample(cv, cache, s.a, tMin, tMax);
+                const auto& sB = getSample(cv, cache, s.b, tMin, tMax);
+                segmentEndpoints->emplace_back(sA.pos, sB.pos);
+            }
         }
     };
 
-    { INTERSECT_TIME_SCOPE("refineSegments_c1"); refineSegments(c1, segs1, cache1, t1_min, t1_max); }
-    { INTERSECT_TIME_SCOPE("refineSegments_c2"); refineSegments(c2, segs2, cache2, t2_min, t2_max); }
+    // Helper: ensure minimum number of segments by forcing extra refinement if needed
+    auto ensureMinSegments = [&](std::vector<ParamSeg>& segs, const Curve<T, N>& cv,
+                                 CurveSampleCache<T, N>& cache, T tMin, T tMax) {
+        constexpr std::size_t kMinSegs = 96; // tuned for sinusoids and high-curvature test cases
+        if (segs.size() < kMinSegs) {
+            // do one extra refinement pass without endpoint recording
+            auto dummy = static_cast<std::vector<std::pair<Point<T, N>, Point<T, N>>>*>(nullptr);
+            refineSegments(cv, segs, cache, tMin, tMax, dummy);
+        }
+    };
+
+    // Vectors to store segment endpoints for reuse in bbox construction
+    std::vector<std::pair<Point<T, N>, Point<T, N>>> segmentEndpoints1, segmentEndpoints2;
+    { INTERSECT_TIME_SCOPE("refineSegments_c1"); refineSegments(c1, segs1, cache1, t1_min, t1_max, &segmentEndpoints1); }
+    ensureMinSegments(segs1, c1, cache1, t1_min, t1_max);
+    { INTERSECT_TIME_SCOPE("refineSegments_c2"); refineSegments(c2, segs2, cache2, t2_min, t2_max, &segmentEndpoints2); }
+    ensureMinSegments(segs2, c2, cache2, t2_min, t2_max);
 
     // 4. now do segment–segment proximity and local refinement -------------
     IntersectionResult<T, N> result;
@@ -686,12 +725,11 @@ IntersectionResult<T, N> intersect(
         }
     };
 
-    // Precompute segment bounding boxes once per curve
+    // Precompute segment bounding boxes once per curve using stored endpoints
     std::vector<std::pair<Point<T, N>, Point<T, N>>> bbox1;
     bbox1.reserve(segs1.size());
-    for (const auto& s1 : segs1) {
-        Point<T, N> p1a = getSample(c1, cache1, s1.a, t1_min, t1_max).pos;
-        Point<T, N> p1b = getSample(c1, cache1, s1.b, t1_min, t1_max).pos;
+    for (size_t i = 0; i < segs1.size(); ++i) {
+        const auto& [p1a, p1b] = segmentEndpoints1[i];
         Point<T, N> seg1Min, seg1Max;
         for (int k = 0; k < N; ++k) {
             seg1Min.coords[k] = std::min(p1a.coords[k], p1b.coords[k]);
@@ -702,9 +740,8 @@ IntersectionResult<T, N> intersect(
 
     std::vector<std::pair<Point<T, N>, Point<T, N>>> bbox2;
     bbox2.reserve(segs2.size());
-    for (const auto& s2 : segs2) {
-        Point<T, N> p2a = getSample(c2, cache2, s2.a, t2_min, t2_max).pos;
-        Point<T, N> p2b = getSample(c2, cache2, s2.b, t2_min, t2_max).pos;
+    for (size_t i = 0; i < segs2.size(); ++i) {
+        const auto& [p2a, p2b] = segmentEndpoints2[i];
         Point<T, N> seg2Min, seg2Max;
         for (int k = 0; k < N; ++k) {
             seg2Min.coords[k] = std::min(p2a.coords[k], p2b.coords[k]);
