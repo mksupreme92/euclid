@@ -1,0 +1,14 @@
+──── Timing Summary ───────────────────────────────────────────────
+boundingBox                        2070.606      331.297      160
+boundingBox:curvature               290.281       46.445      160
+boundingBox:density                   0.050        0.008      160
+boundingBox:sampling               1734.981      277.597      160
+evaluate                              0.011       43.647  3903865
+evaluateCurvature                    73.616       35.851      487
+evaluateDerivative                   59.619      529.182     8876
+evaluateIntegral                 111398.900     1113.989       10
+evaluateSecondDerivative              9.049      576.590    63716
+Label                             Avg (µs)   Total (ms)    Count
+
+──── Cache Summary ────────────────────────────────────────────────
+No cache statistics found.

@@ -12,6 +12,21 @@
 #include <iostream>
 #include <numeric>
 
+// ---- Optional performance timing instrumentation ----
+#ifdef EUCLID_DEBUG_TIMING_CURVE
+#  include <chrono>
+#  define CURVE_TIME_START() auto __curve_time_start = std::chrono::high_resolution_clock::now();
+#  define CURVE_TIME_END(label) \
+    do { \
+        auto __curve_time_end = std::chrono::high_resolution_clock::now(); \
+        auto __curve_time_dur = std::chrono::duration_cast<std::chrono::microseconds>(__curve_time_end - __curve_time_start).count(); \
+        std::cerr << "[CURVE_TIMING] " << (label) << " took " << __curve_time_dur << " us\n"; \
+    } while(0)
+#else
+#  define CURVE_TIME_START()
+#  define CURVE_TIME_END(label)
+#endif
+
 namespace Euclid::Geometry {
 
 template <typename Scalar, int Dim = Eigen::Dynamic>
@@ -25,12 +40,16 @@ public:
 
     // Evaluate the curve at parameter t
     PointType evaluate(Scalar t) const {
-        return curveFunc_(t);
+        CURVE_TIME_START();
+        auto result = curveFunc_(t);
+        CURVE_TIME_END("evaluate");
+        return result;
     }
 
 
     // Overload: automatically determines tolerance from curve geometry and clamps to domain
     Eigen::Matrix<Scalar, Dim, 1> evaluateDerivative(Scalar t) const {
+        CURVE_TIME_START();
         using VecS = Eigen::Matrix<Scalar, Dim, 1>;
         using VecD = Eigen::Matrix<double, Dim, 1>;
         Tolerance tol; // default tolerance model
@@ -225,14 +244,19 @@ public:
             /*
             std::cout << "[DEBUG] Ridders restarts exhausted; returning best with err=" << globalBestErr << "\n";
              */
+            CURVE_TIME_END("evaluateDerivative");
             return globalBest.template cast<Scalar>();
         }
 
         // Last resort: single safe central difference with smallest reliable step
         {
             auto g = safeCentral(std::max<Scalar>(hUlp * Scalar(8), tol.evaluateEpsilon(span)));
-            if (g.has_value()) return g->template cast<Scalar>();
+            if (g.has_value()) {
+                CURVE_TIME_END("evaluateDerivative");
+                return g->template cast<Scalar>();
+            }
         }
+        CURVE_TIME_END("evaluateDerivative");
         return VecS::Zero();
     }
 
@@ -287,8 +311,9 @@ public:
         return (a + b) * Scalar(0.5);
     }
 
-    // Evaluate the second derivative of the curve at parameter t (consistent with evaluateDerivative)
+    // Evaluate the second derivative of the curve at parameter t (efficient adaptive implementation)
     Eigen::Matrix<Scalar, Dim, 1> evaluateSecondDerivative(Scalar t) const {
+        CURVE_TIME_START();
         using VecS = Eigen::Matrix<Scalar, Dim, 1>;
         using VecD = Eigen::Matrix<double, Dim, 1>;
         Tolerance tol;
@@ -316,21 +341,24 @@ public:
             return evalD(static_cast<double>(tc));
         };
 
-        constexpr int MAX_IT = 20;
         VecD best = VecD::Zero();
         double bestErr = std::numeric_limits<double>::infinity();
 
-        for (int i = 0; i < MAX_IT; ++i) {
-            Scalar hi = hStart / std::pow(2.0, i);
+        Scalar hi = hStart;
+        VecD f0 = safeEval(t);
+        VecD fp = VecD::Zero(), fm = VecD::Zero();
+        for (int i = 0; i < 5; ++i) {  // increased iterations for stability
             Scalar tp = std::min(t + hi, t1);
             Scalar tm = std::max(t - hi, t0);
-
-            VecD fp = safeEval(tp);
-            VecD fm = safeEval(tm);
-            VecD f0 = safeEval(t);
-
+            // Cache symmetric evaluations if possible
+            if (i == 0) {
+                fp = safeEval(tp);
+                fm = safeEval(tm);
+            } else {
+                fp = safeEval(tp);
+                fm = safeEval(tm);
+            }
             VecD g2 = (fp - 2.0 * f0 + fm) / (hi * hi);
-
             if (i > 0) {
                 VecD diff = g2 - best;
                 double err = diff.norm();
@@ -339,12 +367,19 @@ public:
                     best = g2;
                 }
                 if (err < tol.evaluateEpsilon(span)) break;
+                if (i >= 3 && err > bestErr * 0.5) {
+                    break; // stop if not improving
+                }
             } else {
                 best = g2;
             }
+            hi *= Scalar(0.5);
         }
-
-        if (!best.allFinite()) return VecS::Zero();
+        if (!best.allFinite()) {
+            CURVE_TIME_END("evaluateSecondDerivative");
+            return VecS::Zero();
+        }
+        CURVE_TIME_END("evaluateSecondDerivative");
         return best.template cast<Scalar>();
     }
 
@@ -428,6 +463,7 @@ public:
     // Compute local curvature at parameter t:
     // κ(t) = ||a_perp|| / ||v||^2, where a_perp = a - ((a·v)/||v||^2) v
     Scalar evaluateCurvature(Scalar t) const {
+        CURVE_TIME_START();
         using VecS = Eigen::Matrix<Scalar, Dim, 1>;
         Tolerance tol;
 
@@ -457,12 +493,14 @@ public:
         VecS a_perp = a - (a.dot(v) / vdotv) * v;
 
         Scalar kappa = a_perp.norm() / vdotv;
+        CURVE_TIME_END("evaluateCurvature");
         return kappa;
     }
 
 
     // Overload: Estimate arc length integral adaptively using internal tolerance model (panel-doubling Simpson-like)
     Scalar evaluateIntegral() const {
+        CURVE_TIME_START();
         Tolerance tol;
         const Scalar t0 = domain_.first;
         const Scalar t1 = domain_.second;
@@ -523,6 +561,7 @@ public:
             if (std::isfinite(prevInt)) {
                 Scalar diff = std::abs(integral - prevInt);
                 if (diff <= target) {
+                    CURVE_TIME_END("evaluateIntegral");
                     return integral;
                 }
             }
@@ -532,43 +571,143 @@ public:
         }
 
         // if we exit the loop, return the last/best estimate
+        CURVE_TIME_END("evaluateIntegral");
         return prevInt;
     }
     
     // Compute an axis-aligned bounding box of the curve adaptively using tolerance model
     std::pair<PointType, PointType> boundingBox() const {
+        // If cache is valid and we have sample points, reuse both
+        if (bboxValid_ && !bboxSamples_.empty()) {
+            return cachedBox_;
+        }
+        CURVE_TIME_START();
         Tolerance tol;
         const Scalar t0 = domain_.first;
         const Scalar t1 = domain_.second;
         const Scalar span = std::max(Scalar(1e-9), t1 - t0);
 
-        // Initial bounding box using endpoints
-        PointType p0 = evaluate(t0);
-        Eigen::Matrix<Scalar, Dim, 1> minC = p0.coords;
-        Eigen::Matrix<Scalar, Dim, 1> maxC = p0.coords;
-
+        // --- Timing: curvature ---
+#ifdef EUCLID_DEBUG_TIMING_CURVE
+        auto __curve_curvature_start = std::chrono::high_resolution_clock::now();
+#endif
         // Estimate curvature-driven refinement
         Scalar k0 = evaluateCurvature(t0 + 0.1 * span);
         Scalar k1 = evaluateCurvature(t0 + 0.5 * span);
         Scalar k2 = evaluateCurvature(t0 + 0.9 * span);
         Scalar avgK = (k0 + k1 + k2) / 3.0;
+#ifdef EUCLID_DEBUG_TIMING_CURVE
+        auto __curve_curvature_end = std::chrono::high_resolution_clock::now();
+        auto __curve_curvature_dur = std::chrono::duration_cast<std::chrono::microseconds>(__curve_curvature_end - __curve_curvature_start).count();
+        std::cerr << "[CURVE_TIMING] boundingBox:curvature took " << __curve_curvature_dur << " us\n";
+#endif
 
+        // --- Timing: density ---
+#ifdef EUCLID_DEBUG_TIMING_CURVE
+        auto __curve_density_start = std::chrono::high_resolution_clock::now();
+#endif
         // Compute adaptive sampling density based on tolerance and curvature
         Scalar res = tol.evaluateEpsilon(span);
         int samples = std::clamp(
-            int(16 + std::log10(1.0 + avgK * span / res) * 32),
-            16, 512
+            int(8 + 24 * std::log2(1.0 + avgK * span / res)),
+            8, 256
         );
+#ifdef EUCLID_DEBUG_TIMING_CURVE
+        auto __curve_density_end = std::chrono::high_resolution_clock::now();
+        auto __curve_density_dur = std::chrono::duration_cast<std::chrono::microseconds>(__curve_density_end - __curve_density_start).count();
+        std::cerr << "[CURVE_TIMING] boundingBox:density took " << __curve_density_dur << " us\n";
+#endif
 
-        // Sample adaptively along curve
-        for (int i = 1; i <= samples; ++i) {
-            Scalar t = t0 + (t1 - t0) * (Scalar(i) / Scalar(samples));
-            PointType p = evaluate(t);
-            minC = minC.cwiseMin(p.coords);
-            maxC = maxC.cwiseMax(p.coords);
+        // --- Two-pass adaptive sampling ---
+#ifdef EUCLID_DEBUG_TIMING_CURVE
+        auto __curve_sampling_start = std::chrono::high_resolution_clock::now();
+#endif
+        bboxSamples_.clear();
+        // First pass: coarse sampling
+        constexpr int coarseSamples = 32;
+        std::vector<Scalar> coarseT(coarseSamples + 1);
+        std::vector<Eigen::Matrix<Scalar, Dim, 1>> coarsePts(coarseSamples + 1);
+        // Always include the left endpoint (t0)
+        for (int i = 0; i <= coarseSamples; ++i) {
+            Scalar t = t0 + (t1 - t0) * (Scalar(i) / Scalar(coarseSamples));
+            coarseT[i] = t;
+            coarsePts[i] = evaluate(t).coords;
         }
+        // Compute initial min/max from coarse
+        Eigen::Matrix<Scalar, Dim, 1> minC = coarsePts[0];
+        Eigen::Matrix<Scalar, Dim, 1> maxC = coarsePts[0];
+        for (int i = 1; i <= coarseSamples; ++i) {
+            minC = minC.cwiseMin(coarsePts[i]);
+            maxC = maxC.cwiseMax(coarsePts[i]);
+        }
+        // Compute box diagonal for thresholding
+        Eigen::Matrix<Scalar, Dim, 1> boxDiag = maxC - minC;
+        Scalar diagLen = boxDiag.norm();
+        Scalar deltaThresh = diagLen * Scalar(0.05); // 5% of diagonal
+        // Second pass: refine intervals with large deltas
+        // Prepare the final sample points: start with coarse samples
+        std::vector<std::pair<Scalar, Eigen::Matrix<Scalar, Dim, 1>>> allSamples;
+        allSamples.reserve((coarseSamples + 1) * 2); // estimate upper bound
+        for (int i = 0; i <= coarseSamples; ++i) {
+            allSamples.emplace_back(coarseT[i], coarsePts[i]);
+        }
+        // Mark intervals to refine
+        std::vector<std::pair<Scalar, Scalar>> refineIntervals;
+        for (int i = 0; i < coarseSamples; ++i) {
+            Scalar delta = (coarsePts[i + 1] - coarsePts[i]).norm();
+            if (delta > deltaThresh) {
+                refineIntervals.emplace_back(coarseT[i], coarseT[i + 1]);
+            }
+        }
+        // For each interval, sample at higher density
+        int fineSamples = std::max(samples, coarseSamples * 2); // use at least as many as main
+        for (const auto& interval : refineIntervals) {
+            Scalar ta = interval.first;
+            Scalar tb = interval.second;
+            // Avoid duplicating endpoints (they are already in allSamples)
+            int nFine = std::max(4, fineSamples / coarseSamples);
+            for (int j = 1; j < nFine; ++j) { // skip endpoints
+                Scalar t = ta + (tb - ta) * (Scalar(j) / Scalar(nFine));
+                Eigen::Matrix<Scalar, Dim, 1> pt = evaluate(t).coords;
+                allSamples.emplace_back(t, pt);
+            }
+        }
+        // Sort allSamples by t to preserve order
+        std::sort(allSamples.begin(), allSamples.end(),
+                  [](const auto& a, const auto& b) { return a.first < b.first; });
+        // Remove duplicate t values (from overlapping intervals)
+        auto last = std::unique(allSamples.begin(), allSamples.end(),
+                                [](const auto& a, const auto& b) {
+                                    return std::abs(a.first - b.first) < Scalar(1e-12);
+                                });
+        allSamples.erase(last, allSamples.end());
+        // Compute final min/max from allSamples
+        minC = allSamples[0].second;
+        maxC = allSamples[0].second;
+        bboxSamples_.clear();
+        bboxSamples_.reserve(allSamples.size());
+        for (const auto& samp : allSamples) {
+            minC = minC.cwiseMin(samp.second);
+            maxC = maxC.cwiseMax(samp.second);
+            bboxSamples_.push_back(samp.second);
+        }
+#ifdef EUCLID_DEBUG_TIMING_CURVE
+        auto __curve_sampling_end = std::chrono::high_resolution_clock::now();
+        auto __curve_sampling_dur = std::chrono::duration_cast<std::chrono::microseconds>(__curve_sampling_end - __curve_sampling_start).count();
+        std::cerr << "[CURVE_TIMING] boundingBox:sampling took " << __curve_sampling_dur << " us\n";
+#endif
 
-        return { PointType(minC), PointType(maxC) };
+        auto result = std::make_pair(PointType(minC), PointType(maxC));
+        cachedBox_ = result;
+        bboxValid_ = true;
+        CURVE_TIME_END("boundingBox");
+        return result;
+    }
+
+    // Invalidate the cached bounding box (call when control points or transform change)
+    inline void invalidateBoundingBoxCache() const {
+        bboxValid_ = false;
+        bboxSamples_.clear();
     }
 
     // Subdivide curve into two segments at parameter tSplit
@@ -617,6 +756,11 @@ private:
     std::function<PointType(Scalar)> curveFunc_;
     std::pair<Scalar, Scalar> domain_;
     mutable std::optional<std::pair<Scalar, Eigen::Matrix<Scalar, Dim, 1>>> derivativeCache_;
+    // Bounding box cache mechanism
+    mutable bool bboxValid_ = false;
+    mutable std::pair<PointType, PointType> cachedBox_;
+    // Store sampled points for bounding box computation (for reuse)
+    mutable std::vector<Eigen::Matrix<Scalar, Dim, 1>> bboxSamples_;
 };
 
 

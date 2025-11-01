@@ -1865,7 +1865,7 @@ inline void testCurve() {
     printTest("Nonlinear 5D t=0.5", curve5.evaluate(0.5f) == Point<float,5>{-0.5f, 0.5f*float(M_PI), 0.25f, 0.125f, std::sqrt(1.5f)});
     printTest("Nonlinear 5D t=1.5", curve5.evaluate(1.5f) == Point<float,5>{-1.5f, 1.5f*float(M_PI), 2.25f, 3.375f, std::sqrt(2.5f)});
 
-    /*
+    
     // Run first derivative test suite
     testCurveDerivative();
     testCurveSecondDerivative();
@@ -1887,7 +1887,7 @@ inline void testCurve() {
     testCurveTangent();
     testCurveSubdivide();
     testCurveBoundingBox();
-    */
+    
 
     // --- Bezier and NURBS tests ---
     testBezierCurves();

@@ -1,6 +1,25 @@
 namespace Euclid {
 namespace Geometry {
 
+#ifdef EUCLID_DEBUG_TIMING_INTERSECT
+#include <chrono>
+#include <fstream>
+#include <chrono>
+#include <fstream>
+#define INTERSECT_TIME_START() auto __intersect_time_start = std::chrono::high_resolution_clock::now();
+#define INTERSECT_TIME_END(label) \
+    do { \
+        auto __intersect_time_end = std::chrono::high_resolution_clock::now(); \
+        auto __intersect_time_dur = std::chrono::duration_cast<std::chrono::microseconds>(__intersect_time_end - __intersect_time_start).count(); \
+        std::ofstream f("timing.log", std::ios::app); \
+        f << "INTERSECT_TIMING " << (label) << " " << __intersect_time_dur << " us\n"; \
+        f.close(); \
+    } while(0)
+#else
+#define INTERSECT_TIME_START()
+#define INTERSECT_TIME_END(label)
+#endif
+
 template <typename T, int N>
 IntersectionResult<T, N> intersect(
     const Curve<T, N>& c1,
@@ -56,6 +75,40 @@ IntersectionResult<T, N> intersect(
     auto [t1_min, t1_max] = c1.domain();
     auto [t2_min, t2_max] = c2.domain();
 
+    // --- lightweight per-curve cache for reuse across refineSegments/refineCell ---
+    struct CacheEntry {
+        Point<T, N> pos;
+        Eigen::Matrix<T, N, 1> d1;
+        Eigen::Matrix<T, N, 1> d2;
+    };
+    std::unordered_map<long long, CacheEntry> cache1;
+    std::unordered_map<long long, CacheEntry> cache2;
+
+    static thread_local int cacheHits = 0;
+    static thread_local int cacheMisses = 0;
+
+    auto quantizeKey = [&](T t, T tMin, T tMax) -> long long {
+        constexpr T q = 1e6;
+        return static_cast<long long>(((t - tMin) / (tMax - tMin)) * q);
+    };
+
+    auto getSample = [&](const Curve<T, N>& c,
+                         std::unordered_map<long long, CacheEntry>& cache,
+                         T t, T tMin, T tMax) -> const CacheEntry& {
+        long long key = quantizeKey(t, tMin, tMax);
+        auto it = cache.find(key);
+        if (it != cache.end()) {
+            ++cacheHits;
+            return it->second;
+        }
+        ++cacheMisses;
+        CacheEntry e;
+        e.pos = c.evaluate(t);
+        e.d1  = c.evaluateDerivativeCached(t);
+        e.d2  = c.evaluateSecondDerivative(t);
+        return cache.emplace(key, std::move(e)).first->second;
+    };
+
 
     // 3. adaptive sampler --------------------------------------------------
     // we keep two samplers, one for each curve, each starting with a coarse grid and
@@ -99,10 +152,17 @@ IntersectionResult<T, N> intersect(
                 T a = s.a;
                 T b = s.b;
                 T m = (a + b) / T(2);
-
-                auto pA = cv.evaluate(a);
-                auto pM = cv.evaluate(m);
-                auto pB = cv.evaluate(b);
+                // Use cache for this curve (cv): only cache1 is used for c1, but both are available
+                auto sA = getSample(cv, cache1, a, t1_min, t1_max);
+                auto sM = getSample(cv, cache1, m, t1_min, t1_max);
+                auto sB = getSample(cv, cache1, b, t1_min, t1_max);
+                auto pA = sA.pos;
+                auto pM = sM.pos;
+                auto pB = sB.pos;
+                auto dA = sA.d1;
+                auto dB = sB.d1;
+                auto ddA = sA.d2;
+                auto ddB = sB.d2;
 
                 // straight-line deviation (existing metric)
                 Eigen::Matrix<T, N, 1> AB = pB.coords - pA.coords;
@@ -128,10 +188,10 @@ IntersectionResult<T, N> intersect(
                 constexpr int samples = 5;
                 T maxAngle = T(0);
                 // Use cached derivative evaluations for efficiency within this segment
-                auto prevDir = safeNorm(cv.evaluateDerivativeCached(a)); // cached
+                auto prevDir = safeNorm(getSample(cv, cache1, a, t1_min, t1_max).d1);
                 for (int s = 1; s < samples; ++s) {
                     T t = a + (b - a) * (T(s) / (samples - 1));
-                    auto dir = safeNorm(cv.evaluateDerivativeCached(t)); // cached
+                    auto dir = safeNorm(getSample(cv, cache1, t, t1_min, t1_max).d1);
                     T dotVal = std::clamp(prevDir.dot(dir), T(-1), T(1));
                     T ang = std::acos(dotVal);
                     if (ang > maxAngle) maxAngle = ang;
@@ -140,10 +200,7 @@ IntersectionResult<T, N> intersect(
                 T curvatureMeasure = maxAngle;
 
                 // --- Curvature sign tracking (for oscillatory refinement) ---
-                auto dA = cv.evaluateDerivativeCached(a); // cached
-                auto dB = cv.evaluateDerivativeCached(b); // cached
-                auto ddA = cv.evaluateSecondDerivative(a);
-                auto ddB = cv.evaluateSecondDerivative(b);
+                // dA, dB, ddA, ddB already above using cache
 
                 // approximate scalar curvature sign (2D: cross product z-sign, ND: derivative projection)
                 T kappaA = T(0), kappaB = T(0);
@@ -156,7 +213,6 @@ IntersectionResult<T, N> intersect(
                 }
                 bool curvatureSignFlip = (kappaA * kappaB) < 0;
 
-
                 // local geometric scale for tolerance
                 T localScale = std::max({pA.coords.cwiseAbs().maxCoeff(),
                                          pM.coords.cwiseAbs().maxCoeff(),
@@ -166,7 +222,6 @@ IntersectionResult<T, N> intersect(
                 // derive a curvature tolerance: small curves (scale ~1) with tight tol get more splits
                 // radians and length are different units, so give curvature a generous multiplier
                 T curvatureTol = localEps * T(400); // <<-- geometry/tol based;
-
 
                 bool needsSplit = false;
 
@@ -209,8 +264,8 @@ IntersectionResult<T, N> intersect(
         }
     };
 
-    refineSegments(c1, segs1);
-    refineSegments(c2, segs2);
+    { INTERSECT_TIME_START(); refineSegments(c1, segs1); INTERSECT_TIME_END("refineSegments_c1"); }
+    { INTERSECT_TIME_START(); refineSegments(c2, segs2); INTERSECT_TIME_END("refineSegments_c2"); }
 
     // 4. now do segment–segment proximity and local refinement -------------
     IntersectionResult<T, N> result;
@@ -252,6 +307,7 @@ IntersectionResult<T, N> intersect(
     // helper to refine inside a param-rect until close or limit reached
     std::function<void(T, T, T, T, int)> refineCell;
     refineCell = [&](T a1, T b1, T a2, T b2, int depth) {
+        INTERSECT_TIME_START();
         // hard safety guards to prevent runaway recursion / bad params
         if (std::isnan(a1) || std::isnan(b1) || std::isnan(a2) || std::isnan(b2))
             return;
@@ -270,10 +326,12 @@ IntersectionResult<T, N> intersect(
         Point<T, N> bestP1, bestP2;
         for (int i = 0; i < S; ++i) {
             T u1 = a1 + (b1 - a1) * T(i) / T(S - 1);
-            auto p1 = c1.evaluate(u1);
+            auto s1 = getSample(c1, cache1, u1, t1_min, t1_max);
+            auto p1 = s1.pos;
             for (int j = 0; j < S; ++j) {
                 T u2 = a2 + (b2 - a2) * T(j) / T(S - 1);
-                auto p2 = c2.evaluate(u2);
+                auto s2 = getSample(c2, cache2, u2, t2_min, t2_max);
+                auto p2 = s2.pos;
                 T d = (p1 - p2).norm();
                 if (d < bestD) {
                     bestD = d;
@@ -310,8 +368,12 @@ IntersectionResult<T, N> intersect(
         // Instead, derive an effective spatial scale from the curve values at the cell corners
         // and compare against the tolerance model. If the cell is already small enough in
         // parameter *and* the spatial separation isn't improving, we stop.
-        auto p1a = c1.evaluate(a1); auto p1b = c1.evaluate(b1);
-        auto p2a = c2.evaluate(a2); auto p2b = c2.evaluate(b2);
+        auto s1a = getSample(c1, cache1, a1, t1_min, t1_max);
+        auto s1b = getSample(c1, cache1, b1, t1_min, t1_max);
+        auto s2a = getSample(c2, cache2, a2, t2_min, t2_max);
+        auto s2b = getSample(c2, cache2, b2, t2_min, t2_max);
+        auto p1a = s1a.pos; auto p1b = s1b.pos;
+        auto p2a = s2a.pos; auto p2b = s2b.pos;
         T cellGeoScale = T(0);
         // estimate a spatial span of this param-rect as max chord of the four corners
         {
@@ -339,8 +401,8 @@ IntersectionResult<T, N> intersect(
         //
         // Compute curvature scales
         // Use tol.evaluateEpsilon(cellGeoScale) as fallback for curvature denominator
-        T curvatureScale1 = 1 / (std::abs(c1.evaluateSecondDerivative(bestU1).norm()) + tol.evaluateEpsilon(cellGeoScale));
-        T curvatureScale2 = 1 / (std::abs(c2.evaluateSecondDerivative(bestU2).norm()) + tol.evaluateEpsilon(cellGeoScale));
+        T curvatureScale1 = 1 / (std::abs(getSample(c1, cache1, bestU1, t1_min, t1_max).d2.norm()) + tol.evaluateEpsilon(cellGeoScale));
+        T curvatureScale2 = 1 / (std::abs(getSample(c2, cache2, bestU2, t2_min, t2_max).d2.norm()) + tol.evaluateEpsilon(cellGeoScale));
         // Compute adaptive parametric tolerances
         T paramTol1 = tol.evaluateEpsilon(cellGeoScale) /
                       (std::max<T>(cellGeoScale, T(1)) * curvatureScale1);
@@ -375,10 +437,10 @@ IntersectionResult<T, N> intersect(
         // This catches crossings missed by curvature tests (e.g., steep polynomial vs line).
         bool signFlip = false;
         {
-            auto p1a_ = c1.evaluate(a1);
-            auto p1b_ = c1.evaluate(b1);
-            auto p2a_ = c2.evaluate(a2);
-            auto p2b_ = c2.evaluate(b2);
+            auto p1a_ = p1a;
+            auto p1b_ = p1b;
+            auto p2a_ = p2a;
+            auto p2b_ = p2b;
 
             // Signed distance difference (approximate projection along dominant axis)
             int domAxis = dominantAxis(p1a_, p1b_);
@@ -512,20 +574,21 @@ IntersectionResult<T, N> intersect(
                 }
             }
         }
+        INTERSECT_TIME_END("refineCell");
     };
 
     // go through every pair of refined segments and refine the param cell if their bboxes overlap
     for (const auto& s1 : segs1) {
-        Point<T, N> p1a = c1.evaluate(s1.a);
-        Point<T, N> p1b = c1.evaluate(s1.b);
+        Point<T, N> p1a = getSample(c1, cache1, s1.a, t1_min, t1_max).pos;
+        Point<T, N> p1b = getSample(c1, cache1, s1.b, t1_min, t1_max).pos;
         Point<T, N> seg1Min, seg1Max;
         for (int k = 0; k < N; ++k) {
             seg1Min.coords[k] = std::min(p1a.coords[k], p1b.coords[k]);
             seg1Max.coords[k] = std::max(p1a.coords[k], p1b.coords[k]);
         }
         for (const auto& s2 : segs2) {
-            Point<T, N> p2a = c2.evaluate(s2.a);
-            Point<T, N> p2b = c2.evaluate(s2.b);
+            Point<T, N> p2a = getSample(c2, cache2, s2.a, t2_min, t2_max).pos;
+            Point<T, N> p2b = getSample(c2, cache2, s2.b, t2_min, t2_max).pos;
             Point<T, N> seg2Min, seg2Max;
             for (int k = 0; k < N; ++k) {
                 seg2Min.coords[k] = std::min(p2a.coords[k], p2b.coords[k]);
@@ -533,7 +596,7 @@ IntersectionResult<T, N> intersect(
             }
             bool overlap = boxesOverlap(seg1Min, seg1Max, seg2Min, seg2Max);
             if (overlap) {
-                refineCell(s1.a, s1.b, s2.a, s2.b, 0);
+                { INTERSECT_TIME_START(); refineCell(s1.a, s1.b, s2.a, s2.b, 0); INTERSECT_TIME_END("refineCell"); }
             }
         }
     }
@@ -541,8 +604,8 @@ IntersectionResult<T, N> intersect(
     if (result.hits.empty() && boxesOverlap(min1, max1, min2, max2)) {
         T mid1 = (t1_min + t1_max) / T(2);
         T mid2 = (t2_min + t2_max) / T(2);
-        auto p1 = c1.evaluate(mid1);
-        auto p2 = c2.evaluate(mid2);
+        auto p1 = getSample(c1, cache1, mid1, t1_min, t1_max).pos;
+        auto p2 = getSample(c2, cache2, mid2, t2_min, t2_max).pos;
         T localScale = std::max(p1.coords.cwiseAbs().maxCoeff(), p2.coords.cwiseAbs().maxCoeff());
         T eps = tol.evaluateEpsilon(localScale);
         if ((p1 - p2).norm() <= eps * T(2)) {
@@ -579,8 +642,8 @@ IntersectionResult<T, N> intersect(
         int closeSamples = 0;
         for (int i = 0; i < sampleCount; ++i) {
             T t = t1_min + (t1_max - t1_min) * (T(i) / (sampleCount - 1));
-            auto p1 = c1.evaluate(t);
-            auto p2 = c2.evaluate(t);
+            auto p1 = getSample(c1, cache1, t, t1_min, t1_max).pos;
+            auto p2 = getSample(c2, cache2, t, t2_min, t2_max).pos;
             T localScale = std::max(p1.coords.cwiseAbs().maxCoeff(), p2.coords.cwiseAbs().maxCoeff());
             T eps = tol.evaluateEpsilon(localScale);
             if ((p1 - p2).norm() <= eps * T(4)) {
@@ -592,6 +655,10 @@ IntersectionResult<T, N> intersect(
     }
 
 
+    {
+        std::ofstream f("timing.log", std::ios::app);
+        f << "INTERSECT_CACHE hit=" << cacheHits << " miss=" << cacheMisses << "\n";
+    }
     return result;
 }
 
