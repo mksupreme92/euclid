@@ -4,6 +4,9 @@ namespace Geometry {
 #ifdef EUCLID_DEBUG_TIMING_INTERSECT
 #include <chrono>
 #include <fstream>
+#include <sstream>
+// Thread-local buffer for timing logs
+thread_local std::ostringstream intersectTimingBuffer;
 struct IntersectTimer {
     const char* label;
     std::chrono::high_resolution_clock::time_point start;
@@ -12,8 +15,7 @@ struct IntersectTimer {
     ~IntersectTimer() {
         auto end = std::chrono::high_resolution_clock::now();
         auto dur = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-        std::ofstream f("timing.log", std::ios::app);
-        f << "INTERSECT_TIMING " << label << " " << dur << " us\n";
+        intersectTimingBuffer << "INTERSECT_TIMING " << label << " " << dur << " us\n";
     }
 };
 #define INTERSECT_TIME_SCOPE(name) IntersectTimer __intersect_timer_##__LINE__{name};
@@ -22,6 +24,7 @@ struct IntersectTimer {
 #endif
 
 // Per-curve sample cache for intersection routines
+#include <array>
 template <typename T, int N>
 struct CurveSampleCache {
     struct Entry {
@@ -29,9 +32,14 @@ struct CurveSampleCache {
         Eigen::Matrix<T, N, 1> d1;
         Eigen::Matrix<T, N, 1> d2;
     };
-    std::unordered_map<long long, Entry> data;
+    std::array<Entry, 64> data;
+    std::array<long long, 64> keys;
+    int pos = 0;
     int hits = 0;
     int misses = 0;
+    CurveSampleCache() : pos(0), hits(0), misses(0) {
+        keys.fill(-1);
+    }
 };
 
 template <typename T, int N>
@@ -98,18 +106,24 @@ IntersectionResult<T, N> intersect(
                          T t, T tMin, T tMax) -> const typename CurveSampleCache<T, N>::Entry& {
         constexpr T q = 1e6;
         long long key = static_cast<long long>(((t - tMin) / (tMax - tMin)) * q);
-        auto it = cache.data.find(key);
-        if (it != cache.data.end()) {
-            ++cache.hits;
-            return it->second;
+        // Linear scan for key
+        for (int i = 0; i < 64; ++i) {
+            if (cache.keys[i] == key) {
+                ++cache.hits;
+                return cache.data[i];
+            }
         }
         ++cache.misses;
+        // Insert/overwrite at pos
         typename CurveSampleCache<T, N>::Entry e;
         e.pos = c.evaluate(t);
         e.d1  = c.evaluateDerivativeCached(t);
         e.d2  = c.evaluateSecondDerivative(t);
-        auto [iter, _] = cache.data.emplace(key, std::move(e));
-        return iter->second;
+        cache.data[cache.pos] = std::move(e);
+        cache.keys[cache.pos] = key;
+        int retPos = cache.pos;
+        cache.pos = (cache.pos + 1) % 64;
+        return cache.data[retPos];
     };
 
 
@@ -742,17 +756,21 @@ IntersectionResult<T, N> intersect(
 
 
     {
-        std::ofstream f("timing.log", std::ios::app);
         auto dumpCache = [&](const char* name, const auto& c) {
             long long total = c.hits + c.misses;
             double ratio = total ? (100.0 * c.hits / total) : 0.0;
-            f << "INTERSECT_CACHE " << name
+            intersectTimingBuffer << "INTERSECT_CACHE " << name
               << " hits " << c.hits
               << " misses " << c.misses
               << " ratio " << ratio << "%\n";
         };
         dumpCache("curve1", cache1);
         dumpCache("curve2", cache2);
+        // At this point, flush the buffer to timing.log
+        std::ofstream f("timing.log", std::ios::app);
+        f << intersectTimingBuffer.str();
+        intersectTimingBuffer.str(""); // clear
+        intersectTimingBuffer.clear();
     }
     return result;
 }

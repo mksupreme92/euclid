@@ -1,16 +1,16 @@
 ──── Timing Summary ───────────────────────────────────────────────
-boundingBox                        1733.115      467.941      270
-boundingBox:curvature               261.222       70.530      270
-boundingBox:density                   0.104        0.028      270
-boundingBox:sampling               1434.678      387.363      270
-evaluate                              0.935     8706.424  9316145
-evaluateCurvature                    67.395       55.062      817
-evaluateDerivative                   61.095      542.278     8876
-evaluateIntegral                 116151.000     1161.510       10
-evaluateSecondDerivative             11.674      866.480    74223
+boundingBox                        1872.922      505.689      270
+boundingBox:curvature               274.196       74.033      270
+boundingBox:density                   0.341        0.092      270
+boundingBox:sampling               1556.467      420.246      270
+evaluate                              0.919     8799.193  9571228
+evaluateCurvature                    70.272       57.412      817
+evaluateDerivative                   61.268      543.811     8876
+evaluateIntegral                 112377.600     1123.776       10
+evaluateSecondDerivative             13.369     4402.444   329306
 Label                             Avg (µs)   Total (ms)    Count
 
 ──── Cache Summary ────────────────────────────────────────────────
-Cache hits: 7217858
-Cache misses: 5732
-Hit ratio: 99.92%
+Cache hits: 10794940
+Cache misses: 63528
+Hit ratio: 99.41%
