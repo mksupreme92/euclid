@@ -4,21 +4,35 @@ namespace Geometry {
 #ifdef EUCLID_DEBUG_TIMING_INTERSECT
 #include <chrono>
 #include <fstream>
-#include <chrono>
-#include <fstream>
-#define INTERSECT_TIME_START() auto __intersect_time_start = std::chrono::high_resolution_clock::now();
-#define INTERSECT_TIME_END(label) \
-    do { \
-        auto __intersect_time_end = std::chrono::high_resolution_clock::now(); \
-        auto __intersect_time_dur = std::chrono::duration_cast<std::chrono::microseconds>(__intersect_time_end - __intersect_time_start).count(); \
-        std::ofstream f("timing.log", std::ios::app); \
-        f << "INTERSECT_TIMING " << (label) << " " << __intersect_time_dur << " us\n"; \
-        f.close(); \
-    } while(0)
+struct IntersectTimer {
+    const char* label;
+    std::chrono::high_resolution_clock::time_point start;
+    IntersectTimer(const char* lbl)
+        : label(lbl), start(std::chrono::high_resolution_clock::now()) {}
+    ~IntersectTimer() {
+        auto end = std::chrono::high_resolution_clock::now();
+        auto dur = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        std::ofstream f("timing.log", std::ios::app);
+        f << "INTERSECT_TIMING " << label << " " << dur << " us\n";
+    }
+};
+#define INTERSECT_TIME_SCOPE(name) IntersectTimer __intersect_timer_##__LINE__{name};
 #else
-#define INTERSECT_TIME_START()
-#define INTERSECT_TIME_END(label)
+#define INTERSECT_TIME_SCOPE(name)
 #endif
+
+// Per-curve sample cache for intersection routines
+template <typename T, int N>
+struct CurveSampleCache {
+    struct Entry {
+        Point<T, N> pos;
+        Eigen::Matrix<T, N, 1> d1;
+        Eigen::Matrix<T, N, 1> d2;
+    };
+    std::unordered_map<long long, Entry> data;
+    int hits = 0;
+    int misses = 0;
+};
 
 template <typename T, int N>
 IntersectionResult<T, N> intersect(
@@ -76,37 +90,26 @@ IntersectionResult<T, N> intersect(
     auto [t2_min, t2_max] = c2.domain();
 
     // --- lightweight per-curve cache for reuse across refineSegments/refineCell ---
-    struct CacheEntry {
-        Point<T, N> pos;
-        Eigen::Matrix<T, N, 1> d1;
-        Eigen::Matrix<T, N, 1> d2;
-    };
-    std::unordered_map<long long, CacheEntry> cache1;
-    std::unordered_map<long long, CacheEntry> cache2;
-
-    static thread_local int cacheHits = 0;
-    static thread_local int cacheMisses = 0;
-
-    auto quantizeKey = [&](T t, T tMin, T tMax) -> long long {
-        constexpr T q = 1e6;
-        return static_cast<long long>(((t - tMin) / (tMax - tMin)) * q);
-    };
+    CurveSampleCache<T, N> cache1;
+    CurveSampleCache<T, N> cache2;
 
     auto getSample = [&](const Curve<T, N>& c,
-                         std::unordered_map<long long, CacheEntry>& cache,
-                         T t, T tMin, T tMax) -> const CacheEntry& {
-        long long key = quantizeKey(t, tMin, tMax);
-        auto it = cache.find(key);
-        if (it != cache.end()) {
-            ++cacheHits;
+                         CurveSampleCache<T, N>& cache,
+                         T t, T tMin, T tMax) -> const typename CurveSampleCache<T, N>::Entry& {
+        constexpr T q = 1e6;
+        long long key = static_cast<long long>(((t - tMin) / (tMax - tMin)) * q);
+        auto it = cache.data.find(key);
+        if (it != cache.data.end()) {
+            ++cache.hits;
             return it->second;
         }
-        ++cacheMisses;
-        CacheEntry e;
+        ++cache.misses;
+        typename CurveSampleCache<T, N>::Entry e;
         e.pos = c.evaluate(t);
         e.d1  = c.evaluateDerivativeCached(t);
         e.d2  = c.evaluateSecondDerivative(t);
-        return cache.emplace(key, std::move(e)).first->second;
+        auto [iter, _] = cache.data.emplace(key, std::move(e));
+        return iter->second;
     };
 
 
@@ -139,7 +142,9 @@ IntersectionResult<T, N> intersect(
     // const T targetSpatial = worldEps * T(2);
 
     // function: refine a set of segments until each segment is "flat enough"
-    auto refineSegments = [&](const Curve<T, N>& cv, std::vector<ParamSeg>& segs) {
+    auto refineSegments = [&](const Curve<T, N>& cv, std::vector<ParamSeg>& segs,
+                              CurveSampleCache<T, N>& cache,
+                              T tMin, T tMax) {
         bool changed = true;
         int iter = 0;
         const int maxIter = 7; // allow a few more passes for wavy curves
@@ -152,10 +157,10 @@ IntersectionResult<T, N> intersect(
                 T a = s.a;
                 T b = s.b;
                 T m = (a + b) / T(2);
-                // Use cache for this curve (cv): only cache1 is used for c1, but both are available
-                auto sA = getSample(cv, cache1, a, t1_min, t1_max);
-                auto sM = getSample(cv, cache1, m, t1_min, t1_max);
-                auto sB = getSample(cv, cache1, b, t1_min, t1_max);
+                // Use cache for this curve (cv): use the provided cache and domain bounds
+                auto sA = getSample(cv, cache, a, tMin, tMax);
+                auto sM = getSample(cv, cache, m, tMin, tMax);
+                auto sB = getSample(cv, cache, b, tMin, tMax);
                 auto pA = sA.pos;
                 auto pM = sM.pos;
                 auto pB = sB.pos;
@@ -188,10 +193,10 @@ IntersectionResult<T, N> intersect(
                 constexpr int samples = 5;
                 T maxAngle = T(0);
                 // Use cached derivative evaluations for efficiency within this segment
-                auto prevDir = safeNorm(getSample(cv, cache1, a, t1_min, t1_max).d1);
+                auto prevDir = safeNorm(getSample(cv, cache, a, tMin, tMax).d1);
                 for (int s = 1; s < samples; ++s) {
                     T t = a + (b - a) * (T(s) / (samples - 1));
-                    auto dir = safeNorm(getSample(cv, cache1, t, t1_min, t1_max).d1);
+                    auto dir = safeNorm(getSample(cv, cache, t, tMin, tMax).d1);
                     T dotVal = std::clamp(prevDir.dot(dir), T(-1), T(1));
                     T ang = std::acos(dotVal);
                     if (ang > maxAngle) maxAngle = ang;
@@ -264,8 +269,8 @@ IntersectionResult<T, N> intersect(
         }
     };
 
-    { INTERSECT_TIME_START(); refineSegments(c1, segs1); INTERSECT_TIME_END("refineSegments_c1"); }
-    { INTERSECT_TIME_START(); refineSegments(c2, segs2); INTERSECT_TIME_END("refineSegments_c2"); }
+    { INTERSECT_TIME_SCOPE("refineSegments_c1"); refineSegments(c1, segs1, cache1, t1_min, t1_max); }
+    { INTERSECT_TIME_SCOPE("refineSegments_c2"); refineSegments(c2, segs2, cache2, t2_min, t2_max); }
 
     // 4. now do segment–segment proximity and local refinement -------------
     IntersectionResult<T, N> result;
@@ -305,9 +310,69 @@ IntersectionResult<T, N> intersect(
     };
 
     // helper to refine inside a param-rect until close or limit reached
+    // Micro-cache for refineCell: fixed-size, circular buffer, LRU-like
+    struct CellCacheEntry {
+        T a1, b1, a2, b2;
+        T bestD, bestU1, bestU2;
+        Point<T, N> bestP1, bestP2;
+    };
+    constexpr int kCellCacheSize = 16;
+    CellCacheEntry cellCache[kCellCacheSize];
+    int cellCachePos = 0;
+    bool cellCacheInit = false;
+    int totalCells = 0;
+    int stagnationCounter = 0;
+    T lastBestD = std::numeric_limits<T>::max();
+    T lastBestD_local = std::numeric_limits<T>::max();
     std::function<void(T, T, T, T, int)> refineCell;
     refineCell = [&](T a1, T b1, T a2, T b2, int depth) {
-        INTERSECT_TIME_START();
+        // Micro-cache lookup
+        constexpr T eps_param = T(1e-10);
+        int cacheHitIdx = -1;
+        for (int i = 0; i < (cellCacheInit ? kCellCacheSize : cellCachePos); ++i) {
+            const auto& entry = cellCache[i];
+            if (std::abs(entry.a1 - a1) <= eps_param &&
+                std::abs(entry.b1 - b1) <= eps_param &&
+                std::abs(entry.a2 - a2) <= eps_param &&
+                std::abs(entry.b2 - b2) <= eps_param) {
+                cacheHitIdx = i;
+                break;
+            }
+        }
+        if (cacheHitIdx >= 0) {
+            INTERSECT_TIME_SCOPE("microCache_hit");
+            // Use cached result, skip computation
+            const auto& e = cellCache[cacheHitIdx];
+            T bestD = e.bestD;
+            T bestU1 = e.bestU1, bestU2 = e.bestU2;
+            const Point<T, N>& bestP1 = e.bestP1;
+            const Point<T, N>& bestP2 = e.bestP2;
+            // compute local eps from the best pair
+            T localScale = std::max(bestP1.coords.cwiseAbs().maxCoeff(), bestP2.coords.cwiseAbs().maxCoeff());
+            T eps = tol.evaluateEpsilon(localScale);
+            if (bestD <= eps * T(4)) {
+                tryAddHit(bestU1, bestP1, bestU2, bestP2);
+                return;
+            }
+            // fall through to rest of logic as if this was just computed
+            // (copy-paste from below to avoid recomputation)
+            // --- Secondary interior hit criterion (absolute fallback) ---
+            {
+                bool interior = (bestU1 > (t1_min + T(0.05) * (t1_max - t1_min))) &&
+                                (bestU1 < (t1_max - T(0.05) * (t1_max - t1_min))) &&
+                                (bestU2 > (t2_min + T(0.05) * (t2_max - t2_min))) &&
+                                (bestU2 < (t2_max - T(0.05) * (t2_max - t2_min)));
+                if (interior && bestD < T(1e-3)) {
+                    tryAddHit(bestU1, bestP1, bestU2, bestP2);
+                    return;
+                }
+            }
+            // If we get here, continue with normal logic (but don't recompute bestD, bestU1, etc)
+            // For brevity, skip rest of micro-cache logic, as full recomputation is rare.
+        } else {
+            INTERSECT_TIME_SCOPE("microCache_miss");
+        }
+        INTERSECT_TIME_SCOPE("refineCell");
         // hard safety guards to prevent runaway recursion / bad params
         if (std::isnan(a1) || std::isnan(b1) || std::isnan(a2) || std::isnan(b2))
             return;
@@ -341,6 +406,15 @@ IntersectionResult<T, N> intersect(
                     bestP2 = p2;
                 }
             }
+        }
+        // Store result in micro-cache before any early returns
+        {
+            CellCacheEntry& entry = cellCache[cellCachePos];
+            entry.a1 = a1; entry.b1 = b1; entry.a2 = a2; entry.b2 = b2;
+            entry.bestD = bestD; entry.bestU1 = bestU1; entry.bestU2 = bestU2;
+            entry.bestP1 = bestP1; entry.bestP2 = bestP2;
+            cellCachePos = (cellCachePos + 1) % kCellCacheSize;
+            if (cellCachePos == 0) cellCacheInit = true;
         }
 
         // compute local eps from the best pair
@@ -387,7 +461,6 @@ IntersectionResult<T, N> intersect(
         }
         T cellTol = tol.evaluateEpsilon(cellGeoScale);
         // Inserted: stagnation guard for bestD
-        static thread_local T lastBestD_local = std::numeric_limits<T>::max();
         if (std::abs(bestD - lastBestD_local) < tol.evaluateEpsilon(cellGeoScale)) {
             tryAddHit(bestU1, bestP1, bestU2, bestP2);
             return;
@@ -538,7 +611,6 @@ IntersectionResult<T, N> intersect(
 
         // --- SAFETY BLOCK: Prevent runaway refinement and stagnation ---
         // Pathological recursion diagnostic counters and guards
-        static thread_local int totalCells = 0;
         ++totalCells;
         if (totalCells > 200000) {
             return; // hard cap to prevent infinite refine in debug-less builds
@@ -551,8 +623,6 @@ IntersectionResult<T, N> intersect(
             (b2 - a2) < std::numeric_limits<T>::epsilon()) return;
 
         // detect lack of geometric progress (no improvement)
-        static thread_local int stagnationCounter = 0;
-        static thread_local T lastBestD = std::numeric_limits<T>::max();
         if (std::abs(bestD - lastBestD) < tol.evaluateEpsilon(cellGeoScale) * T(0.5)) {
             if (++stagnationCounter > 200) return;
         } else {
@@ -574,10 +644,11 @@ IntersectionResult<T, N> intersect(
                 }
             }
         }
-        INTERSECT_TIME_END("refineCell");
     };
 
-    // go through every pair of refined segments and refine the param cell if their bboxes overlap
+    // Precompute segment bounding boxes once per curve
+    std::vector<std::pair<Point<T, N>, Point<T, N>>> bbox1;
+    bbox1.reserve(segs1.size());
     for (const auto& s1 : segs1) {
         Point<T, N> p1a = getSample(c1, cache1, s1.a, t1_min, t1_max).pos;
         Point<T, N> p1b = getSample(c1, cache1, s1.b, t1_min, t1_max).pos;
@@ -586,17 +657,32 @@ IntersectionResult<T, N> intersect(
             seg1Min.coords[k] = std::min(p1a.coords[k], p1b.coords[k]);
             seg1Max.coords[k] = std::max(p1a.coords[k], p1b.coords[k]);
         }
-        for (const auto& s2 : segs2) {
-            Point<T, N> p2a = getSample(c2, cache2, s2.a, t2_min, t2_max).pos;
-            Point<T, N> p2b = getSample(c2, cache2, s2.b, t2_min, t2_max).pos;
-            Point<T, N> seg2Min, seg2Max;
-            for (int k = 0; k < N; ++k) {
-                seg2Min.coords[k] = std::min(p2a.coords[k], p2b.coords[k]);
-                seg2Max.coords[k] = std::max(p2a.coords[k], p2b.coords[k]);
-            }
-            bool overlap = boxesOverlap(seg1Min, seg1Max, seg2Min, seg2Max);
-            if (overlap) {
-                { INTERSECT_TIME_START(); refineCell(s1.a, s1.b, s2.a, s2.b, 0); INTERSECT_TIME_END("refineCell"); }
+        bbox1.emplace_back(seg1Min, seg1Max);
+    }
+
+    std::vector<std::pair<Point<T, N>, Point<T, N>>> bbox2;
+    bbox2.reserve(segs2.size());
+    for (const auto& s2 : segs2) {
+        Point<T, N> p2a = getSample(c2, cache2, s2.a, t2_min, t2_max).pos;
+        Point<T, N> p2b = getSample(c2, cache2, s2.b, t2_min, t2_max).pos;
+        Point<T, N> seg2Min, seg2Max;
+        for (int k = 0; k < N; ++k) {
+            seg2Min.coords[k] = std::min(p2a.coords[k], p2b.coords[k]);
+            seg2Max.coords[k] = std::max(p2a.coords[k], p2b.coords[k]);
+        }
+        bbox2.emplace_back(seg2Min, seg2Max);
+    }
+
+    // Use precomputed bboxes in nested loop
+    for (size_t i = 0; i < segs1.size(); ++i) {
+        const auto& s1 = segs1[i];
+        const auto& [seg1Min, seg1Max] = bbox1[i];
+        for (size_t j = 0; j < segs2.size(); ++j) {
+            const auto& s2 = segs2[j];
+            const auto& [seg2Min, seg2Max] = bbox2[j];
+            if (boxesOverlap(seg1Min, seg1Max, seg2Min, seg2Max)) {
+                INTERSECT_TIME_SCOPE("refineCell");
+                refineCell(s1.a, s1.b, s2.a, s2.b, 0);
             }
         }
     }
@@ -657,7 +743,16 @@ IntersectionResult<T, N> intersect(
 
     {
         std::ofstream f("timing.log", std::ios::app);
-        f << "INTERSECT_CACHE hit=" << cacheHits << " miss=" << cacheMisses << "\n";
+        auto dumpCache = [&](const char* name, const auto& c) {
+            long long total = c.hits + c.misses;
+            double ratio = total ? (100.0 * c.hits / total) : 0.0;
+            f << "INTERSECT_CACHE " << name
+              << " hits " << c.hits
+              << " misses " << c.misses
+              << " ratio " << ratio << "%\n";
+        };
+        dumpCache("curve1", cache1);
+        dumpCache("curve2", cache2);
     }
     return result;
 }

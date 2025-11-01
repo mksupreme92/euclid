@@ -29,14 +29,19 @@
 
 namespace Euclid::Geometry {
 
-template <typename Scalar, int Dim = Eigen::Dynamic>
+// Curve now takes its function as a template parameter, for zero runtime overhead.
+// The default (type-erased) variant is still supported for backwards compatibility.
+template <typename Scalar, int Dim = Eigen::Dynamic, typename FuncT = void>
+class Curve;
+
+// Primary template for inline function type (FuncT != void)
+template <typename Scalar, int Dim, typename FuncT>
 class Curve {
 public:
     using PointType = Point<Scalar, Dim>;
-
-    // General parametric curve constructor
-    Curve(std::function<PointType(Scalar)> func, Scalar t0, Scalar t1)
-        : curveFunc_(func), domain_{t0, t1} {}
+    // General parametric curve constructor: stores callable directly (no std::function)
+    Curve(FuncT func, Scalar t0, Scalar t1)
+        : curveFunc_(std::move(func)), domain_{t0, t1} {}
 
     // Evaluate the curve at parameter t
     PointType evaluate(Scalar t) const {
@@ -54,6 +59,7 @@ public:
         using VecD = Eigen::Matrix<double, Dim, 1>;
         Tolerance tol; // default tolerance model
 
+        // Inline evaluation function (direct call, no std::function overhead)
         auto evalD = [&](double tt) -> VecD {
             return curveFunc_(static_cast<Scalar>(tt)).coords.template cast<double>();
         };
@@ -84,14 +90,40 @@ public:
         // Reduce the maximum finite difference step for oscillatory or high-curvature curves
         const Scalar hMax = std::max(span * Scalar(1e-2), epsMach);
         h0 = std::min(h0, hMax);
-        /*
-        std::cout << "[DEBUG] adaptive h = " << h0
-                  << " for geomScale = " << geomScale
-                  << ", slopeEstimate = " << slopeEstimate << std::endl;
-         */
 
         // Ridders' parameters
         constexpr int MAX_IT = 30;
+
+        // --- Local memoization cache for f(t+h), f(t-h) to avoid redundant evaluations ---
+        struct FCache {
+            double tp = std::numeric_limits<double>::quiet_NaN();
+            double tm = std::numeric_limits<double>::quiet_NaN();
+            VecD fp;
+            VecD fm;
+        };
+        FCache cache;
+        // Returns (fp, fm) for given step h, using cache if possible.
+        auto getSymmetric = [&](Scalar step) -> std::pair<VecD, VecD> {
+            double tp = std::min(static_cast<double>(t + step), static_cast<double>(t1));
+            double tm = std::max(static_cast<double>(t - step), static_cast<double>(t0));
+            VecD fp, fm;
+            // Only recompute if not cached
+            if (tp == cache.tp) {
+                fp = cache.fp;
+            } else {
+                fp = evalD(tp);
+                cache.tp = tp;
+                cache.fp = fp;
+            }
+            if (tm == cache.tm) {
+                fm = cache.fm;
+            } else {
+                fm = evalD(tm);
+                cache.tm = tm;
+                cache.fm = fm;
+            }
+            return {fp, fm};
+        };
 
         auto safeCentral = [&](Scalar step) -> std::optional<VecD> {
             Scalar tf = std::min(t + step, t1);
@@ -104,8 +136,8 @@ public:
                 denom = tf - tb;
                 if (!(denom > Scalar(0))) return std::nullopt;
             }
-            const VecD fwd = evalD(static_cast<double>(tf));
-            const VecD bwd = evalD(static_cast<double>(tb));
+            // Use cache for symmetric evaluations
+            auto [fwd, bwd] = getSymmetric(step);
             VecD g = (fwd - bwd) / static_cast<double>(denom);
             if (!g.allFinite()) return std::nullopt;
             return g;
@@ -166,11 +198,6 @@ public:
                 if (i > 0) {
                     VecD diff = D[i][i] - D[i - 1][i - 1];
                     double err = diff.norm();
-                    /*
-                    std::cout << "[DEBUG] Ridders iteration " << i
-                              << ", |Δdiag| = " << err << std::endl;
-                     */
-
                     // Track best
                     if (err < bestErr && D[i][i].allFinite()) {
                         bestErr = err;
@@ -181,9 +208,7 @@ public:
                     // Convergence: absolute-to-relative hybrid
                     const double relScale = 1.0 + D[i][i].norm();
                     if (err <= static_cast<double>(convTol) * relScale) {
-                        /*
-                        std::cout << "[DEBUG] Ridders converged at i=" << i
-                                  << " with err=" << err << " (tol=" << convTol << ")\n";*/
+                        // Return best estimate
                         return best.template cast<Scalar>();
                     }
 
@@ -200,9 +225,7 @@ public:
                         double deltaPrev = (D[i-1][i-1] - D[i-2][i-2]).norm();
                         double deltaCurr = (D[i][i] - D[i-1][i-1]).norm();
                         if (deltaCurr > deltaPrev * 1.5 && deltaCurr > static_cast<double>(convTol)) {
-                            /*
-                            std::cout << "[DEBUG] Detected oscillatory behavior, refining step h by 0.5\n";
-                             */
+                            // Detected oscillatory behavior, refining step h by 0.5
                             hStart *= Scalar(0.5);
                             break;
                         }
@@ -210,9 +233,7 @@ public:
 
                     // --- Final adaptive refinement for oscillatory, high-curvature curves ---
                     if (geomScale > Scalar(1.5) && slopeEstimate > Scalar(3.0)) {
-                        /*
-                        std::cout << "[DEBUG] High-curvature refinement: halving step hStart for oscillatory geometry\n";
-                         */
+                        // High-curvature refinement: halving step hStart for oscillatory geometry
                         hStart = std::max(hUlp * Scalar(8), hStart * Scalar(0.25));
                         break;
                     }
@@ -241,9 +262,6 @@ public:
         }
 
         if (haveGlobalBest) {
-            /*
-            std::cout << "[DEBUG] Ridders restarts exhausted; returning best with err=" << globalBestErr << "\n";
-             */
             CURVE_TIME_END("evaluateDerivative");
             return globalBest.template cast<Scalar>();
         }
@@ -715,20 +733,17 @@ public:
         const Scalar tMin = domain_.first;
         const Scalar tMax = domain_.second;
         const Scalar t0 = std::max(tMin, std::min(tSplit, tMax));
-
         // Reparameterize sub-curves into [0, 1] domain
-        auto func1 = [=, this](Scalar t) -> PointType {
+        auto func1 = [=, *this](Scalar t) -> PointType {
             Scalar u = tMin + (t0 - tMin) * t;
             return this->curveFunc_(u);
         };
-        auto func2 = [=, this](Scalar t) -> PointType {
+        auto func2 = [=, *this](Scalar t) -> PointType {
             Scalar u = t0 + (tMax - t0) * t;
             return this->curveFunc_(u);
         };
-
-        Curve c1(func1, 0.0, 1.0);
-        Curve c2(func2, 0.0, 1.0);
-
+        Curve<Scalar, Dim, decltype(func1)> c1(func1, 0.0, 1.0);
+        Curve<Scalar, Dim, decltype(func2)> c2(func2, 0.0, 1.0);
         return {c1, c2};
     }
 
@@ -737,11 +752,11 @@ public:
 
     // Apply a transform to the curve
     template <typename Transform>
-    Curve applyTransform(const Transform& T) const {
-        auto newFunc = [T, this](Scalar t) -> PointType {
+    auto applyTransform(const Transform& T) const {
+        auto newFunc = [T, *this](Scalar t) -> PointType {
             return T.apply(this->evaluate(t));
         };
-        return Curve(newFunc, domain_.first, domain_.second);
+        return Curve<Scalar, Dim, decltype(newFunc)>(newFunc, domain_.first, domain_.second);
     }
 
     // Linear curve factory: p(t) = p0 + t*(p1 - p0)
@@ -749,17 +764,114 @@ public:
         auto func = [p0, p1](Scalar t) -> PointType {
             return p0 + (p1 - p0) * t;
         };
-        return Curve(func, 0, 1);
+        return Curve<Scalar, Dim, decltype(func)>(func, 0, 1);
     }
 
 private:
-    std::function<PointType(Scalar)> curveFunc_;
+    FuncT curveFunc_;
     std::pair<Scalar, Scalar> domain_;
     mutable std::optional<std::pair<Scalar, Eigen::Matrix<Scalar, Dim, 1>>> derivativeCache_;
     // Bounding box cache mechanism
     mutable bool bboxValid_ = false;
     mutable std::pair<PointType, PointType> cachedBox_;
     // Store sampled points for bounding box computation (for reuse)
+    mutable std::vector<Eigen::Matrix<Scalar, Dim, 1>> bboxSamples_;
+};
+
+// Specialization for legacy type-erased std::function (FuncT = void)
+template <typename Scalar, int Dim>
+class Curve<Scalar, Dim, void> {
+public:
+    using PointType = Point<Scalar, Dim>;
+    Curve(std::function<PointType(Scalar)> func, Scalar t0, Scalar t1)
+        : curveFunc_(std::move(func)), domain_{t0, t1} {}
+    PointType evaluate(Scalar t) const {
+        CURVE_TIME_START();
+        auto result = curveFunc_(t);
+        CURVE_TIME_END("evaluate");
+        return result;
+    }
+    Eigen::Matrix<Scalar, Dim, 1> evaluateDerivative(Scalar t) const {
+        // Use the new inline version with std::function as the callable.
+        // This will be a bit slower, but preserves API for legacy code.
+        Curve<Scalar, Dim, std::function<PointType(Scalar)>> tmp(curveFunc_, domain_.first, domain_.second);
+        return tmp.evaluateDerivative(t);
+    }
+    Eigen::Matrix<Scalar, Dim, 1> evaluateDerivativeCached(Scalar t) const {
+        if (derivativeCache_.has_value() && derivativeCache_->first == t) {
+            return derivativeCache_->second;
+        }
+        auto d = evaluateDerivative(t);
+        derivativeCache_ = std::make_pair(t, d);
+        return d;
+    }
+    // All other methods forward to the inline version for std::function
+#define CURVE_FORWARD(NAME, ...) \
+    Curve<Scalar, Dim, std::function<PointType(Scalar)>> tmp(curveFunc_, domain_.first, domain_.second); \
+    return tmp.NAME(__VA_ARGS__);
+    template <typename Func>
+    Scalar adaptiveParametricSolve(Func f, Scalar t0, Scalar t1, Scalar targetTol) const {
+        CURVE_FORWARD(adaptiveParametricSolve, f, t0, t1, targetTol);
+    }
+    Eigen::Matrix<Scalar, Dim, 1> evaluateSecondDerivative(Scalar t) const {
+        CURVE_FORWARD(evaluateSecondDerivative, t);
+    }
+    Eigen::Matrix<Scalar, Dim, 1> evaluateTangent(Scalar t) const {
+        CURVE_FORWARD(evaluateTangent, t);
+    }
+    std::pair<Eigen::Matrix<Scalar, Dim, 1>, Scalar> evaluateDerivativeWithConfidence(Scalar t) const {
+        CURVE_FORWARD(evaluateDerivativeWithConfidence, t);
+    }
+    Scalar evaluateCurvature(Scalar t) const {
+        CURVE_FORWARD(evaluateCurvature, t);
+    }
+    Scalar evaluateIntegral() const {
+        CURVE_FORWARD(evaluateIntegral);
+    }
+    std::pair<PointType, PointType> boundingBox() const {
+        CURVE_FORWARD(boundingBox);
+    }
+    inline void invalidateBoundingBoxCache() const {
+        bboxValid_ = false;
+        bboxSamples_.clear();
+    }
+    std::pair<Curve, Curve> subDivide(Scalar tSplit) const {
+        // Use legacy constructor
+        const Scalar tMin = domain_.first;
+        const Scalar tMax = domain_.second;
+        const Scalar t0 = std::max(tMin, std::min(tSplit, tMax));
+        auto func1 = [=, this](Scalar t) -> PointType {
+            Scalar u = tMin + (t0 - tMin) * t;
+            return this->curveFunc_(u);
+        };
+        auto func2 = [=, this](Scalar t) -> PointType {
+            Scalar u = t0 + (tMax - t0) * t;
+            return this->curveFunc_(u);
+        };
+        Curve c1(func1, 0.0, 1.0);
+        Curve c2(func2, 0.0, 1.0);
+        return {c1, c2};
+    }
+    std::pair<Scalar, Scalar> domain() const { return domain_; }
+    template <typename Transform>
+    Curve applyTransform(const Transform& T) const {
+        auto newFunc = [T, this](Scalar t) -> PointType {
+            return T.apply(this->evaluate(t));
+        };
+        return Curve(newFunc, domain_.first, domain_.second);
+    }
+    static Curve linearCurve(const PointType& p0, const PointType& p1) {
+        auto func = [p0, p1](Scalar t) -> PointType {
+            return p0 + (p1 - p0) * t;
+        };
+        return Curve(func, 0, 1);
+    }
+private:
+    std::function<PointType(Scalar)> curveFunc_;
+    std::pair<Scalar, Scalar> domain_;
+    mutable std::optional<std::pair<Scalar, Eigen::Matrix<Scalar, Dim, 1>>> derivativeCache_;
+    mutable bool bboxValid_ = false;
+    mutable std::pair<PointType, PointType> cachedBox_;
     mutable std::vector<Eigen::Matrix<Scalar, Dim, 1>> bboxSamples_;
 };
 

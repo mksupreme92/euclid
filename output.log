@@ -1,0 +1,949 @@
+
+🧪 Running Euclid Unit Tests...
+
+📐 Testing Geometry Logic
+
+∿ Testing Curve Primitive
+✅ Linear 2D curve t=0
+✅ Linear 2D curve t=1
+✅ Linear 2D curve t=0.5
+✅ Linear 3D curve t=0.5
+✅ Nonlinear 2D curve t=0.5
+✅ Nonlinear 3D curve t=0.0
+✅ Nonlinear 3D curve t=0.5
+✅ Nonlinear 3D curve t=1.0
+✅ Sinusoidal 2D curve t=0
+✅ Sinusoidal 2D curve t=0.25
+✅ Sinusoidal 2D curve t=0.5
+✅ Sinusoidal 2D curve t=0.75
+✅ Sinusoidal 2D curve t=1.0
+✅ Curve transform evaluation
+✅ Nonlinear 2D t=0
+✅ Nonlinear 2D t=0.5
+✅ Nonlinear 2D t=1.0
+✅ Nonlinear 2D t=-0.5
+✅ Nonlinear 2D t=1.5
+✅ Nonlinear 3D t=0.5
+✅ Nonlinear 3D t=1.5
+✅ Nonlinear 4D t=0.5
+✅ Nonlinear 4D t=-0.5
+✅ Nonlinear 5D t=0.5
+✅ Nonlinear 5D t=1.5
+
+∿ Testing Curve Derivative (Adaptive Tolerance)
+[DEBUG] expected: 1 1, got: 1 1, tol: 1.17071e-05
+✅ Linear curve derivative (adaptive)
+[DEBUG] expected: 1 1, got: 1 1, tol: 1.1309e-05
+✅ Quadratic curve derivative (adaptive)
+[DEBUG] expected:       1 1.64872, got:      1 1.6487, tol: 1.38716e-05
+✅ Exponential curve derivative (adaptive)
+[DEBUG] expected:        1 -6.28319, got:        1 -6.28318, absErr: 1.43051e-06, relErr: 2.24843e-07, tol: 1.1e-05
+✅ Sinusoidal curve derivative (adaptive)
+[DEBUG] expected:     -6.28319 -2.74647e-07, got: -6.28313        0, absErr: 5.24528e-05, relErr: 8.34812e-06, tol: 1.2e-05
+✅ Circular curve derivative (adaptive)
+[DEBUG] expected:     1 -0.25, got:         1 -0.250018, tol: 1.15e-05
+✅ Cubic curve derivative (adaptive)
+[DEBUG] expected: 0.48 0.64, got: 0.480005 0.639999, tol: 1.10472e-05
+✅ Rational quadratic curve derivative (adaptive)
+[DEBUG] expected:    -6.28319 3.84734e-16           1, got: -6.28319        0        1, tol: 1.22808e-05
+✅ Helix curve derivative (adaptive)
+[DEBUG] expected:   1 2.5, got:   1 2.5, tol: 1.17071e-05
+✅ Sigmoid curve derivative (adaptive)
+[DEBUG] expected:    -9.42478    -25.1327 1.12389e-07, got: -9.42537 -25.1304        0, absErr: 0.00245086, relErr: 9.13075e-05, scaledTol: 0.000344517, relTol: 0.00042342
+✅ Torus knot curve derivative (adaptive)
+
+∿ Testing Curve Second Derivative (Adaptive Tolerance)
+[DEBUG] Linear: expected=0 0, got=0 0, diff=0, relTol=1e-05
+✅ Linear curve second derivative (adaptive)
+[DEBUG] Quadratic: expected=0 2, got=      0 1.99816, diff=0.00184405, relTol=0.002
+✅ Quadratic curve second derivative (adaptive)
+[DEBUG] Circular: expected=1.72566e-06    -39.4784, got=0.000133727     -39.471, diff=0.0074589, relTol=0.0394784
+✅ Circular curve second derivative (adaptive)
+[DEBUG] Sinusoidal: expected=       0 -39.4784, got=      0 -39.471, diff=0.00745773, relTol=0.0394784
+✅ Sinusoidal curve second derivative (adaptive)
+[DEBUG] Helix: expected=-2.41736e-15     -39.4784            0, got=-2.03396e-11      -39.471            0, diff=0.00745392, relTol=0.0394784
+✅ Helix curve second derivative (adaptive)
+
+∿ Testing Curve Derivative Accuracy (Confidence-Aware)
+   This test validates the numerical accuracy of evaluateDerivativeWithConfidence(t)
+   for representative parametric curves under the current adaptive tolerance model.
+   It compares computed first derivatives against exact analytical derivatives
+   at a fixed parameter (t=0.5) and reports absolute error, relative error,
+   confidence (stability), and adaptive tolerance scaling.
+   Note: this is a pointwise accuracy validation, not a convergence (resolution) test.
+
+
+| Curve        | absErr         | relErr         | conf       | tol            |
+|-------------------------------------------------------------------------------|
+| Linear       |   0.000000e+00 |   0.000000e+00 | 1.000000e+00 |   1.212132e-05 |
+| Quadratic    |   4.768372e-07 |   3.371748e-07 | 7.573286e-01 |   1.197323e-05 |
+| Cubic        |   2.026558e-06 |   1.621246e-06 | 7.549197e-01 |   1.176539e-05 |
+| Exponential  |   1.077652e-04 |   7.993144e-06 | 7.503707e-01 |   2.799170e-05 |
+| Sinusoidal   |   3.433228e-04 |   1.092277e-05 | 9.963255e-01 |   4.193184e-05 |
+| Torus-like   |   2.318681e-05 |   3.690295e-07 | 7.500066e-01 |   7.533185e-05 |
+
+∿ Testing Derivative Cache and Adaptive Parametric Solver
+[DEBUG] Cached derivative call stable: true at t=0.25
+✅ Derivative cache consistency
+✅ Derivative cache numerical accuracy
+[DEBUG] adaptiveParametricSolve: root=0.5 diff=0
+✅ Adaptive parametric solver (simple root)
+[DEBUG] adaptiveParametricSolve(sin): root=0.5 diff=0
+✅ Adaptive parametric solver (oscillatory root)
+
+∿ Curve Derivative Parametric Step Sensitivity (Confidence-Aware)
+   This test examines how the derivative confidence reacts to evaluating
+   the curve slightly away from the target parameter. It does NOT try to
+   scale the tolerance; it only perturbs t and observes stability.
+
+| Curve        | δt        | absErr         | relErr         | conf       |
+|---------------------------------------------------------------------------|
+| Linear       | 1.000e-01  | 0.000000e+00   | 0.000000e+00   | 1.000000e+00 |
+| Linear       | 3.000e-02  | 0.000000e+00   | 0.000000e+00   | 1.000000e+00 |
+| Linear       | 1.000e-02  | 0.000000e+00   | 0.000000e+00   | 1.000000e+00 |
+| Linear       | 3.000e-03  | 0.000000e+00   | 0.000000e+00   | 1.000000e+00 |
+| Linear       | 1.000e-03  | 0.000000e+00   | 0.000000e+00   | 1.000000e+00 |
+| Linear       | 3.000e-04  | 0.000000e+00   | 0.000000e+00   | 1.000000e+00 |
+| Linear       | 1.000e-04  | 0.000000e+00   | 0.000000e+00   | 1.000000e+00 |
+| Quadratic    | 1.000e-01  | 2.000000e-01   | 1.414214e-01   | 7.573019e-01 |
+| Quadratic    | 3.000e-02  | 5.999660e-02   | 4.242401e-02   | 7.573019e-01 |
+| Quadratic    | 1.000e-02  | 2.000117e-02   | 1.414296e-02   | 7.573020e-01 |
+| Quadratic    | 3.000e-03  | 6.000996e-03   | 4.243345e-03   | 7.573019e-01 |
+| Quadratic    | 1.000e-03  | 2.001286e-03   | 1.415123e-03   | 7.573421e-01 |
+| Quadratic    | 3.000e-04  | 6.030798e-04   | 4.264418e-04   | 7.573286e-01 |
+| Quadratic    | 1.000e-04  | 1.997948e-04   | 1.412762e-04   | 7.573020e-01 |
+| Sinusoidal   | 1.000e-01  | 1.199958e+00   | 1.886055e-01   | 7.506434e-01 |
+| Sinusoidal   | 3.000e-02  | 1.112599e-01   | 1.748747e-02   | 7.519998e-01 |
+| Sinusoidal   | 1.000e-02  | 1.239347e-02   | 1.947966e-03   | 7.557939e-01 |
+| Sinusoidal   | 3.000e-03  | 1.109123e-03   | 1.743284e-04   | 7.704087e-01 |
+| Sinusoidal   | 1.000e-03  | 1.473427e-04   | 2.315884e-05   | 8.129325e-01 |
+| Sinusoidal   | 3.000e-04  | 3.433228e-05   | 5.396234e-06   | 8.314201e-01 |
+| Sinusoidal   | 1.000e-04  | 2.479553e-05   | 3.897281e-06   | 8.614093e-01 |
+
+
+∿ Curve Derivative Curvature–Confidence Correlation
+   This diagnostic test examines how numerical confidence in first-derivative
+   estimation correlates with local geometric curvature across representative
+   curves. For each curve, samples at multiple parameter values (t) are used to
+   compute:
+     - curvature κ = |x'y'' − y'x''| / (x'^2 + y'^2)^(3/2)
+     - confidence from evaluateDerivativeWithConfidence(t)
+     - stability metric = conf / κ (confidence per unit curvature)
+   This helps assess how robust confidence tracking remains as local curvature
+   increases. Higher curvature should generally reduce confidence, while a stable
+   tolerance model should produce consistent efficiency across curves.
+
+| Curve      | t      | Curvature    | Conf       | Stability    |
+|-----------------------------------------------------------------|
+| Linear     | 1.000000e-01 | 0.000000e+00 | 1.000000e+00 | 0.000000e+00 |
+| Linear     | 3.000000e-01 | 0.000000e+00 | 1.000000e+00 | 0.000000e+00 |
+| Linear     | 5.000000e-01 | 0.000000e+00 | 1.000000e+00 | 0.000000e+00 |
+| Linear     | 7.000000e-01 | 0.000000e+00 | 1.000000e+00 | 0.000000e+00 |
+| Linear     | 9.000000e-01 | 0.000000e+00 | 1.000000e+00 | 0.000000e+00 |
+| Quadratic  | 1.000000e-01 | 1.887239e+00 | 7.573178e-01 | 4.012834e-01 |
+| Quadratic  | 3.000000e-01 | 1.259913e+00 | 7.573085e-01 | 6.010801e-01 |
+| Quadratic  | 5.000000e-01 | 7.064871e-01 | 7.573286e-01 | 1.071964e+00 |
+| Quadratic  | 7.000000e-01 | 3.923255e-01 | 7.573020e-01 | 1.930290e+00 |
+| Quadratic  | 9.000000e-01 | 2.381265e-01 | 7.572755e-01 | 3.180139e+00 |
+| Sinusoidal | 1.000000e-01 | 1.659843e-01 | 7.506455e-01 | 4.522388e+00 |
+| Sinusoidal | 3.000000e-01 | 3.606411e+00 | 7.503989e-01 | 2.080736e-01 |
+| Sinusoidal | 5.000000e-01 | 2.314435e-04 | 1.000000e+00 | 4.320708e+03 |
+| Sinusoidal | 7.000000e-01 | 3.596151e+00 | 7.503994e-01 | 2.086674e-01 |
+| Sinusoidal | 9.000000e-01 | 1.673892e-01 | 7.506451e-01 | 4.484428e+00 |
+| Torus-like | 1.000000e-01 | 3.261011e-01 | 7.500213e-01 | 2.299966e+00 |
+| Torus-like | 3.000000e-01 | 5.476326e-01 | 7.500082e-01 | 1.369546e+00 |
+| Torus-like | 5.000000e-01 | 5.814472e-01 | 7.500066e-01 | 1.289896e+00 |
+| Torus-like | 7.000000e-01 | 5.512497e-01 | 7.500082e-01 | 1.360560e+00 |
+| Torus-like | 9.000000e-01 | 3.215373e-01 | 7.500213e-01 | 2.332611e+00 |
+
+⇢ Mean Efficiency Summary (mean(conf/κ)):
+| Curve        | Mean Efficiency |
+|------------------------------|
+| Linear       |  10000.00000 |
+| Quadratic    |      1.43695 |
+| Sinusoidal   |    866.02625 |
+| Torus-like   |      1.73052 |
+
+⇢ Normalized Efficiency (mean(conf/κ) / mean(conf)):
+| Curve        | Normalized   |
+|------------------------------|
+| Linear       |  10000.00000 |
+| Quadratic    |      1.89745 |
+| Sinusoidal   |   1081.96777 |
+| Torus-like   |      2.30731 |
+
+
+∿ Testing Curve Second Derivative (Adaptive Tolerance)
+[DEBUG] Linear: expected=0.00000 0.00000, got=0.00000 0.00000, diff=0.00000, relTol=0.00001
+✅ Linear curve second derivative (adaptive)
+[DEBUG] Quadratic: expected=0.00000 2.00000, got=0.00000 1.99816, diff=0.00184, relTol=0.00200
+✅ Quadratic curve second derivative (adaptive)
+[DEBUG] Circular: expected=  0.00000 -39.47842, got=  0.00013 -39.47096, diff=0.00746, relTol=0.03948
+✅ Circular curve second derivative (adaptive)
+[DEBUG] Sinusoidal: expected=  0.00000 -39.47842, got=  0.00000 -39.47096, diff=0.00746, relTol=0.03948
+✅ Sinusoidal curve second derivative (adaptive)
+[DEBUG] Helix: expected= -0.00000 -39.47842   0.00000, got= -0.00000 -39.47096   0.00000, diff=0.00745, relTol=0.03948
+✅ Helix curve second derivative (adaptive)
+
+∿ Testing Curve Second Derivative Accuracy (Adaptive Convergence)
+   This test validates the numerical accuracy of evaluateSecondDerivative(t)
+   for representative parametric curves under the current adaptive tolerance model.
+   It compares computed second derivatives against exact analytical second derivatives
+   at a fixed parameter (t=0.5) and reports absolute error, relative error,
+   and adaptive tolerance scaling.
+   Note: this is a pointwise accuracy validation, not a convergence (resolution) test.
+
+
+| Curve        | absErr         | relErr         | conf       | tol            |
+|-------------------------------------------------------------------------------|
+| Linear       |   0.000000e+00 |              - |          - |   2.070711e-05 |
+| Quadratic    |   1.844049e-03 |   9.220243e-04 |          - |   2.255902e-05 |
+| Exponential  |   2.461135e-02 |   1.492754e-02 |          - |   2.337159e-05 |
+| Sinusoidal   |   1.102035e-04 |              - |          - |   2.050000e-05 |
+| Circular     |   7.454733e-03 |   1.888306e-04 |          - |   6.047841e-05 |
+| Cubic        |   2.155542e-03 |   7.185141e-04 |          - |   2.362500e-05 |
+| Sigmoid      |   4.921566e-03 |              - |          - |   2.070711e-05 |
+| Sigmoid-0.4  |   9.279251e-03 |   1.021294e-03 |          - |   2.997147e-05 |
+| Sigmoid-0.6  |   4.357338e-03 |   4.795780e-04 |          - |   2.965352e-05 |
+
+∿ Testing Curve Integral (Adaptive Tolerance)
+[DEBUG] Linear curve: expected=1.41421, computed=1.41421, diff=1.19209e-07, tol=1e-05
+✅ Linear curve integral (arc length)
+[DEBUG] Quadratic curve: expected=1.47894, computed=1.47894, diff=4.76837e-07, tol=1.5e-05
+✅ Quadratic curve integral (arc length)
+[DEBUG] Circular curve: expected=6.28319, computed=6.28318, diff=3.33786e-06, tol=1.5e-05
+✅ Circular curve integral (arc length)
+[DEBUG] Sinusoidal curve: expected=4.18828, computed=4.18828, diff=9.53674e-07, tol=3e-05
+✅ Sinusoidal curve integral (arc length)
+[DEBUG] Helix curve: expected=6.36227, computed=6.36226, diff=2.38419e-06, tol=2e-05
+✅ Helix curve integral (arc length)
+[DEBUG] Exponential curve: expected=2.00345, computed=2.00349, diff=4.17233e-05, tol=2e-05
+✅ Exponential curve integral (arc length)
+[DEBUG] Cubic curve: expected=1.31136, computed=1.31136, diff=1.54972e-06, tol=2.5e-05
+✅ Cubic curve integral (arc length)
+[DEBUG] Rational quadratic curve: expected=1.5708, computed=1.5708, diff=2.38419e-06, tol=2.5e-05
+✅ Rational quadratic curve integral (arc length)
+[DEBUG] Sigmoid curve: expected=1.52326, computed=1.52326, diff=8.34465e-07, tol=2.5e-05
+✅ Sigmoid curve integral (arc length)
+[DEBUG] Torus knot curve: expected=26.8887, computed=26.8887, diff=2.09808e-05, tol=5e-05
+✅ Torus knot curve integral (arc length)
+
+∿ Testing Curve Local Curvature (Adaptive Tolerance)
+[DEBUG] Linear: expected=0, computed=0, diff=0, tol=1.000000e-05, scaledTol=9.999999e-04
+✅ Linear curve curvature
+[DEBUG] Circular: expected=1, computed=1.0002, diff=0.000195384, tol=1.000000e-05, scaledTol=9.999999e-04
+✅ Circular curve curvature
+[DEBUG] Quadratic: expected=0.707107, computed=0.707109, diff=2.14577e-06, tol=1.000000e-05, scaledTol=9.999999e-04
+✅ Quadratic curve curvature
+[DEBUG] Helix: expected=0.975295, computed=0.975477, diff=0.000181675, tol=1.000000e-05, scaledTol=2.000000e-03
+✅ Helix curve curvature
+[DEBUG] Sinusoidal: expected=39.4784, computed=39.4735, diff=0.00493622, tol=1.000000e-05, scaledTol=5.000000e-03
+✅ Sinusoidal curve curvature
+
+∿ Testing Curve Tangent (Adaptive Tolerance)
+[DEBUG] Linear: expected=0.707107 0.707107, computed=0.707107 0.707107, diff=0, tol=1e-05
+✅ Linear curve tangent
+[DEBUG] Circular: expected=          -1 -4.37114e-08, computed=-1  0, diff=4.37114e-08, tol=1e-05
+✅ Circular curve tangent
+[DEBUG] Helix: expected=  -0.987571 6.04713e-17    0.157177, computed=-0.987571         0  0.157177, diff=6.04713e-17, tol=1e-05
+✅ Helix curve tangent
+
+∿ Testing Curve Subdivision
+[DEBUG] Midpoint continuity check:
+   original mid =  0.5 0.25
+   left end     =  0.5 0.25
+   right start  =  0.5 0.25
+✅ Continuity at subdivision point
+✅ Left start matches original start
+✅ Right end matches original end
+[DEBUG] Subdivision at t=0.25:
+   original =   0.25 0.0625
+   left end =   0.25 0.0625
+   right start =   0.25 0.0625
+✅ Continuity at t=0.25
+[DEBUG] Subdivision at t=0.75:
+   original =   0.75 0.5625
+   left end =   0.75 0.5625
+   right start =   0.75 0.5625
+✅ Continuity at t=0.75
+[DEBUG] 3D curve subdivision at t=0.5:
+   original mid =   0.5  0.25 0.125
+   left end     =   0.5  0.25 0.125
+   right start  =   0.5  0.25 0.125
+✅ 3D curve midpoint continuity (isApprox)
+[DEBUG] 4D curve subdivision at t=0.5:
+   original mid =          0.5         0.25        0.125 -8.74228e-08
+   left end     =          0.5         0.25        0.125 -8.74228e-08
+   right start  =          0.5         0.25        0.125 -8.74228e-08
+✅ 4D curve midpoint continuity (isApprox)
+[DEBUG] 5D curve subdivision at t=0.5:
+   original mid =          0.5         0.25        0.125 -8.74228e-08           -1
+   left end     =          0.5         0.25        0.125 -8.74228e-08           -1
+   right start  =          0.5         0.25        0.125 -8.74228e-08           -1
+✅ 5D curve midpoint continuity (isApprox)
+
+∿ Testing Curve Bounding Box (Adaptive)
+[DEBUG] Linear bounding box: min=0 0 max=1 1
+✅ Linear bounding box
+[DEBUG] Quadratic bounding box: min=0 0 max=1 1
+✅ Quadratic bounding box (min≈0,0 max≈1,1)
+[DEBUG] Cubic bounding box: min=0 0 max=       1 0.384521
+✅ Cubic bounding box (covers full range)
+[DEBUG] Helix bounding box: min=-1 -1  0 max=1 1 1
+✅ Helix bounding box (z in [0,1])
+[DEBUG] 4D bounding box: min= 0  0  0 -1 max=1 1 1 1
+✅ 4D bounding box (includes sin range)
+[DEBUG] 5D bounding box: min= 0  0  0 -1 -1 max=1 1 1 1 1
+✅ 5D bounding box (includes sin/cos range)
+[DEBUG] Circular bounding box: min=-1 -1 max=1 1
+✅ Circular bounding box (approx unit circle)
+[DEBUG] Sinusoidal bounding box: min= 0 -1 max=1 1
+✅ Sinusoidal bounding box (approx ±1 in y)
+
+∿ Testing Bezier Curves
+✅ Bezier linear t=0
+✅ Bezier linear t=1
+✅ Bezier linear t=0.5
+[DEBUG] Quadratic Bezier midpoint: got=(0.75 0.25) expected=(0.75 0.25)
+✅ Bezier quadratic t=0
+✅ Bezier quadratic t=1
+✅ Bezier quadratic t=0.5 ≈ (0.75,0.25)
+
+∿ Testing NURBS Curves
+[DEBUG] NURBS quarter circle: start=(1 0) mid=(0.707107 0.707107) end=(0 1)
+[DEBUG] NURBS quarter circle midpoint magnitude: 1 (expected ≈ 1)
+✅ NURBS quarter circle start ≈ (1,0)
+✅ NURBS quarter circle end ≈ (0,1)
+✅ NURBS quarter circle midpoint ≈ (0.7,0.7), |mid|≈1
+∿ Testing Bezier Derivatives
+✅ Linear derivative constant
+[DEBUG] Quadratic Bezier derivative at t=0.5: 1 1
+✅ Quadratic derivative direction correct
+[DEBUG] Cubic curvature at t=0.5: 2.66643
+✅ Cubic curvature nonzero and smooth
+[DEBUG] Bezier tangent ratio: 0.999984
+[DEBUG] Bezier curvature magnitude at t=0.5: 5.98462
+∿ Testing NURBS Derivatives
+[DEBUG] NURBS derivative @t=0.5: -1.17156  1.17156
+[DEBUG] NURBS curvature @t=0.5: 0.998975
+✅ NURBS derivative nonzero, curvature positive
+[DEBUG] NURBS tangent continuity ratio: 0.853565
+[DEBUG] NURBS curvature magnitude: 2.72838
+∿ Testing Advanced Bezier Curves
+[DEBUG] Bezier 4th-degree endpoints: start=0 0 end=1 0
+✅ Bezier 4th-degree endpoints correct
+[DEBUG] Bezier closed loop endpoints: start=0 0 end=0 0
+✅ Bezier loop continuity: endpoints match
+[DEBUG] 3D Bezier midpoint: 1 1 1
+✅ 3D Bezier: non-zero z-component verified
+[DEBUG] Affine test: translated=   5.33 -2.6993 expected=   5.33 -2.6993
+✅ Bezier affine invariance passed
+
+∿ Testing Advanced NURBS Curves
+[DEBUG] Nonuniform NURBS midpoint: 0.414062 0.546875
+✅ Nonuniform knots test passed
+[DEBUG] Weighted NURBS midpoint:  0.38172 0.376344
+✅ Rational weighting affects curvature
+[DEBUG] 3D NURBS midpoint: 0.588889 0.588889      0.3
+✅ 3D NURBS z-component verified
+[DEBUG] Closed NURBS endpoints: 0 0 vs 0 0
+✅ Closed NURBS loop continuity verified
+
+∿ Testing Bezier C¹ Continuity
+[DEBUG] Bezier tangent dot: 1
+✅ Bezier C¹ tangent continuity verified
+
+∿ Testing NURBS Arc Length Consistency
+[DEBUG] Chord ≈ 1.41421, 2-chord ≈ 1.53073, analytic π/2 ≈ 1.5708
+✅ NURBS quarter-circle arc-length matches analytic π/2
+
+∿ Testing Bezier Reparameterization Consistency
+[DEBUG] Bezier reparam test: orig(0.25)=0.226562 0.439062, sub(0.5)=0.226563 0.439062
+[DEBUG] Bezier reparam error = 1.49012e-08
+✅ Bezier reparameterization consistent at t=0.25
+
+∿ Testing NURBS Internal Knot Continuity
+[DEBUG] NURBS internal knot (quad): pMid=0.6 0.8 vs ctrl=0.6 0.8 dist=0
+✅ NURBS internal knot positional continuity verified (quadratic, mult=2)
+[DEBUG] left=  0.5988 0.799198 right=0.6008 0.7984 jump=0.00215343
+
+∿ Testing Curve - Curve intersection:
+--- Test Case 1: Diagonal Cross ---
+Number of intersection points: 1
+  Point 0: (  0.500000,   0.500000) | Parameters: u_curve=  0.500000, u_curve2=  0.500000
+✅ Curve–Curve intersection: has intersection
+✅ Correct intersection location
+----------------------------------------
+--- Test Case 2: Parallel Lines ---
+Number of intersection points: 0
+✅ Curve–Curve intersection: no intersection
+----------------------------------------
+--- Test Case 3: Sinusoidal Intersections ---
+Number of intersection points: 3
+  Point 0: (  0.000000,   0.000000) | Parameters: u_curve=  0.000000, u_curve2=  0.000000
+  Point 1: (  0.500000,   0.000000) | Parameters: u_curve=  0.500000, u_curve2=  0.500000
+  Point 2: (  1.000000,  -0.000000) | Parameters: u_curve=  1.000000, u_curve2=  1.000000
+✅ Curve–Curve intersection: expected 3 intersections
+[Analytical validation for sinusoidal intersections]
+  [Expected] u=0.000000 → (0.000000, 0.000000) | best Δu=0.000000 Δp=0.000000
+  [Expected] u=0.500000 → (0.500000, 0.000000) | best Δu=0.000000 Δp=0.000000
+  [Expected] u=1.000000 → (1.000000, -0.000000) | best Δu=0.000000 Δp=0.000000
+----------------------------------------
+--- Test Case 3B: Sinusoidal Intersections (Extended Domain) ---
+Number of intersection points: 5
+  Point 0: (  0.000000,   0.000000) | Parameters: u_curve=  0.000000, u_curve2=  0.000000
+  Point 1: (  0.500000,   0.000001) | Parameters: u_curve=  0.500000, u_curve2=  0.500000
+  Point 2: (  1.000000,  -0.000000) | Parameters: u_curve=  1.000000, u_curve2=  1.000000
+  Point 3: (  1.500000,   0.000000) | Parameters: u_curve=  1.500000, u_curve2=  1.500000
+  Point 4: (  2.000000,  -0.000000) | Parameters: u_curve=  2.000000, u_curve2=  2.000000
+✅ Curve–Curve intersection: expected 5 intersections (extended domain)
+[Analytical validation for sinusoidal intersections (extended domain)]
+  [Expected] u=0.000000 → (0.000000, 0.000000) | best Δu=0.000000 Δp=0.000000
+  [Expected] u=0.500000 → (0.500000, 0.000000) | best Δu=0.000000 Δp=0.000002
+  [Expected] u=1.000000 → (1.000000, -0.000000) | best Δu=0.000000 Δp=0.000000
+  [Expected] u=1.500000 → (1.500000, 0.000000) | best Δu=0.000000 Δp=0.000000
+  [Expected] u=2.000000 → (2.000000, -0.000000) | best Δu=0.000000 Δp=0.000000
+----------------------------------------
+--- Test Case 4: Circle–Line Intersection ---
+Number of intersection points: 2
+  Point 0: (  1.000000,   0.000000) | Parameters: u_curve=  0.000000, u_curve2=  1.000000
+  Point 1: ( -1.000000,   0.000000) | Parameters: u_curve=  0.500000, u_curve2=  0.000000
+✅ Curve–Curve intersection: two intersections (circle-line)
+----------------------------------------
+--- Test Case 5: Tangential Intersection ---
+Number of intersection points: 1
+  Point 0: (  0.000000,   1.000000) | Parameters: u_curve=  0.250000, u_curve2=  0.500000
+✅ Curve–Curve intersection: single tangent point
+----------------------------------------
+--- Test Case 6: Overlapping Curves ---
+Number of intersection points: 1
+  Point 0: (  0.000000,   0.000000) | Parameters: u_curve=  0.000000, u_curve2=  0.000000
+✅ Curve–Curve intersection: overlapping curves
+----------------------------------------
+--- Test Case 7: Offset Sine Curves ---
+Number of intersection points: 2
+  Point 0: (  0.187500,   0.923880) | Parameters: u_curve=  0.187500, u_curve2=  0.187500
+  Point 1: (  0.687500,  -0.923880) | Parameters: u_curve=  0.687500, u_curve2=  0.687500
+✅ Curve–Curve intersection: expected 2 intersections for offset sine curves
+----------------------------------------
+--- Test Case 8: Perpendicular Circular Arcs ---
+Number of intersection points: 2
+  Point 0: (  1.000000,   0.000000) | Parameters: u_curve=  0.000000, u_curve2=  0.000000
+  Point 1: ( -1.000000,   0.000000) | Parameters: u_curve=  1.000000, u_curve2=  1.000000
+✅ Curve–Curve intersection: two intersections near x ≈ 0.5
+----------------------------------------
+--- Test Case 9: Spiral vs Line ---
+Number of intersection points: 4
+  Point 0: (  0.000000,   0.000000) | Parameters: u_curve=  0.000000, u_curve2=  0.500000
+  Point 1: (  0.500000,  -0.000000) | Parameters: u_curve=  0.500000, u_curve2=  0.750000
+  Point 2: ( -0.750000,   0.000000) | Parameters: u_curve=  0.750000, u_curve2=  0.125000
+  Point 3: (  1.000000,  -0.000000) | Parameters: u_curve=  1.000000, u_curve2=  1.000000
+✅ Curve–Curve intersection: multiple intersections (>= 2) for spiral vs line
+----------------------------------------
+--- Test Case 10: High-curvature polynomial vs line ---
+Number of intersection points: 2
+  Point 0: (  0.060557,   0.250000) | Parameters: u_curve=  0.060557, u_curve2=  0.060557
+  Point 1: (  0.395426,   0.250000) | Parameters: u_curve=  0.395426, u_curve2=  0.395426
+✅ Curve–Curve intersection: expected 2 intersections for high-curvature polynomial vs line
+----------------------------------------
+
+
+∿ Testing Curve - Curve intersection (High-Dimensional / Robustness):
+--- HD Case 1: 3D Line vs Helix ---
+Number of intersection points: 1
+  Point 0: (  1.000000,   0.000000,   0.000000) | Parameters: u_curve=  1.000000, u_curve2=  0.000000
+✅ 3D line–helix: single intersection
+✅ 3D line–helix: intersection near (1,0,0)
+----------------------------------------
+--- HD Case 2: 3D Skew Curves ---
+Number of intersection points: 0
+✅ 3D skew curves: no intersection
+----------------------------------------
+--- HD Case 3: 4D Polynomial vs 4D Line (identical) ---
+Number of intersection points: 128
+  Point 0: (  0.000000,   0.000000,   0.000000,   1.000000) | Parameters: u_curve=  0.000000, u_curve2=  0.000000
+  Point 1: (  0.007812,   0.000061,   0.003906,   1.000000) | Parameters: u_curve=  0.007812, u_curve2=  0.007812
+  Point 2: (  0.015625,   0.000244,   0.007812,   1.000000) | Parameters: u_curve=  0.015625, u_curve2=  0.015625
+  Point 3: (  0.023438,   0.000549,   0.011719,   1.000000) | Parameters: u_curve=  0.023438, u_curve2=  0.023438
+  Point 4: (  0.031250,   0.000977,   0.015625,   1.000000) | Parameters: u_curve=  0.031250, u_curve2=  0.031250
+  Point 5: (  0.039062,   0.001526,   0.019531,   1.000000) | Parameters: u_curve=  0.039062, u_curve2=  0.039062
+  Point 6: (  0.046875,   0.002197,   0.023438,   1.000000) | Parameters: u_curve=  0.046875, u_curve2=  0.046875
+  Point 7: (  0.054688,   0.002991,   0.027344,   1.000000) | Parameters: u_curve=  0.054688, u_curve2=  0.054688
+  Point 8: (  0.062500,   0.003906,   0.031250,   1.000000) | Parameters: u_curve=  0.062500, u_curve2=  0.062500
+  Point 9: (  0.070312,   0.004944,   0.035156,   1.000000) | Parameters: u_curve=  0.070312, u_curve2=  0.070312
+  Point 10: (  0.078125,   0.006104,   0.039062,   1.000000) | Parameters: u_curve=  0.078125, u_curve2=  0.078125
+  Point 11: (  0.085938,   0.007385,   0.042969,   1.000000) | Parameters: u_curve=  0.085938, u_curve2=  0.085938
+  Point 12: (  0.093750,   0.008789,   0.046875,   1.000000) | Parameters: u_curve=  0.093750, u_curve2=  0.093750
+  Point 13: (  0.101562,   0.010315,   0.050781,   1.000000) | Parameters: u_curve=  0.101562, u_curve2=  0.101562
+  Point 14: (  0.109375,   0.011963,   0.054688,   1.000000) | Parameters: u_curve=  0.109375, u_curve2=  0.109375
+  Point 15: (  0.117188,   0.013733,   0.058594,   1.000000) | Parameters: u_curve=  0.117188, u_curve2=  0.117188
+  Point 16: (  0.125000,   0.015625,   0.062500,   1.000000) | Parameters: u_curve=  0.125000, u_curve2=  0.125000
+  Point 17: (  0.132812,   0.017639,   0.066406,   1.000000) | Parameters: u_curve=  0.132812, u_curve2=  0.132812
+  Point 18: (  0.140625,   0.019775,   0.070312,   1.000000) | Parameters: u_curve=  0.140625, u_curve2=  0.140625
+  Point 19: (  0.148438,   0.022034,   0.074219,   1.000000) | Parameters: u_curve=  0.148438, u_curve2=  0.148438
+  Point 20: (  0.156250,   0.024414,   0.078125,   1.000000) | Parameters: u_curve=  0.156250, u_curve2=  0.156250
+  Point 21: (  0.164062,   0.026917,   0.082031,   1.000000) | Parameters: u_curve=  0.164062, u_curve2=  0.164062
+  Point 22: (  0.171875,   0.029541,   0.085938,   1.000000) | Parameters: u_curve=  0.171875, u_curve2=  0.171875
+  Point 23: (  0.179688,   0.032288,   0.089844,   1.000000) | Parameters: u_curve=  0.179688, u_curve2=  0.179688
+  Point 24: (  0.187500,   0.035156,   0.093750,   1.000000) | Parameters: u_curve=  0.187500, u_curve2=  0.187500
+  Point 25: (  0.195312,   0.038147,   0.097656,   1.000000) | Parameters: u_curve=  0.195312, u_curve2=  0.195312
+  Point 26: (  0.203125,   0.041260,   0.101562,   1.000000) | Parameters: u_curve=  0.203125, u_curve2=  0.203125
+  Point 27: (  0.210938,   0.044495,   0.105469,   1.000000) | Parameters: u_curve=  0.210938, u_curve2=  0.210938
+  Point 28: (  0.218750,   0.047852,   0.109375,   1.000000) | Parameters: u_curve=  0.218750, u_curve2=  0.218750
+  Point 29: (  0.226562,   0.051331,   0.113281,   1.000000) | Parameters: u_curve=  0.226562, u_curve2=  0.226562
+  Point 30: (  0.234375,   0.054932,   0.117188,   1.000000) | Parameters: u_curve=  0.234375, u_curve2=  0.234375
+  Point 31: (  0.242188,   0.058655,   0.121094,   1.000000) | Parameters: u_curve=  0.242188, u_curve2=  0.242188
+  Point 32: (  0.250000,   0.062500,   0.125000,   1.000000) | Parameters: u_curve=  0.250000, u_curve2=  0.250000
+  Point 33: (  0.257812,   0.066467,   0.128906,   1.000000) | Parameters: u_curve=  0.257812, u_curve2=  0.257812
+  Point 34: (  0.265625,   0.070557,   0.132812,   1.000000) | Parameters: u_curve=  0.265625, u_curve2=  0.265625
+  Point 35: (  0.273438,   0.074768,   0.136719,   1.000000) | Parameters: u_curve=  0.273438, u_curve2=  0.273438
+  Point 36: (  0.281250,   0.079102,   0.140625,   1.000000) | Parameters: u_curve=  0.281250, u_curve2=  0.281250
+  Point 37: (  0.289062,   0.083557,   0.144531,   1.000000) | Parameters: u_curve=  0.289062, u_curve2=  0.289062
+  Point 38: (  0.296875,   0.088135,   0.148438,   1.000000) | Parameters: u_curve=  0.296875, u_curve2=  0.296875
+  Point 39: (  0.304688,   0.092834,   0.152344,   1.000000) | Parameters: u_curve=  0.304688, u_curve2=  0.304688
+  Point 40: (  0.312500,   0.097656,   0.156250,   1.000000) | Parameters: u_curve=  0.312500, u_curve2=  0.312500
+  Point 41: (  0.320312,   0.102600,   0.160156,   1.000000) | Parameters: u_curve=  0.320312, u_curve2=  0.320312
+  Point 42: (  0.328125,   0.107666,   0.164062,   1.000000) | Parameters: u_curve=  0.328125, u_curve2=  0.328125
+  Point 43: (  0.335938,   0.112854,   0.167969,   1.000000) | Parameters: u_curve=  0.335938, u_curve2=  0.335938
+  Point 44: (  0.343750,   0.118164,   0.171875,   1.000000) | Parameters: u_curve=  0.343750, u_curve2=  0.343750
+  Point 45: (  0.351562,   0.123596,   0.175781,   1.000000) | Parameters: u_curve=  0.351562, u_curve2=  0.351562
+  Point 46: (  0.359375,   0.129150,   0.179688,   1.000000) | Parameters: u_curve=  0.359375, u_curve2=  0.359375
+  Point 47: (  0.367188,   0.134827,   0.183594,   1.000000) | Parameters: u_curve=  0.367188, u_curve2=  0.367188
+  Point 48: (  0.375000,   0.140625,   0.187500,   1.000000) | Parameters: u_curve=  0.375000, u_curve2=  0.375000
+  Point 49: (  0.382812,   0.146545,   0.191406,   1.000000) | Parameters: u_curve=  0.382812, u_curve2=  0.382812
+  Point 50: (  0.390625,   0.152588,   0.195312,   1.000000) | Parameters: u_curve=  0.390625, u_curve2=  0.390625
+  Point 51: (  0.398438,   0.158752,   0.199219,   1.000000) | Parameters: u_curve=  0.398438, u_curve2=  0.398438
+  Point 52: (  0.406250,   0.165039,   0.203125,   1.000000) | Parameters: u_curve=  0.406250, u_curve2=  0.406250
+  Point 53: (  0.414062,   0.171448,   0.207031,   1.000000) | Parameters: u_curve=  0.414062, u_curve2=  0.414062
+  Point 54: (  0.421875,   0.177979,   0.210938,   1.000000) | Parameters: u_curve=  0.421875, u_curve2=  0.421875
+  Point 55: (  0.429688,   0.184631,   0.214844,   1.000000) | Parameters: u_curve=  0.429688, u_curve2=  0.429688
+  Point 56: (  0.437500,   0.191406,   0.218750,   1.000000) | Parameters: u_curve=  0.437500, u_curve2=  0.437500
+  Point 57: (  0.445312,   0.198303,   0.222656,   1.000000) | Parameters: u_curve=  0.445312, u_curve2=  0.445312
+  Point 58: (  0.453125,   0.205322,   0.226562,   1.000000) | Parameters: u_curve=  0.453125, u_curve2=  0.453125
+  Point 59: (  0.460938,   0.212463,   0.230469,   1.000000) | Parameters: u_curve=  0.460938, u_curve2=  0.460938
+  Point 60: (  0.468750,   0.219727,   0.234375,   1.000000) | Parameters: u_curve=  0.468750, u_curve2=  0.468750
+  Point 61: (  0.476562,   0.227112,   0.238281,   1.000000) | Parameters: u_curve=  0.476562, u_curve2=  0.476562
+  Point 62: (  0.484375,   0.234619,   0.242188,   1.000000) | Parameters: u_curve=  0.484375, u_curve2=  0.484375
+  Point 63: (  0.492188,   0.242249,   0.246094,   1.000000) | Parameters: u_curve=  0.492188, u_curve2=  0.492188
+  Point 64: (  0.500000,   0.250000,   0.250000,   1.000000) | Parameters: u_curve=  0.500000, u_curve2=  0.500000
+  Point 65: (  0.507812,   0.257874,   0.253906,   1.000000) | Parameters: u_curve=  0.507812, u_curve2=  0.507812
+  Point 66: (  0.515625,   0.265869,   0.257812,   1.000000) | Parameters: u_curve=  0.515625, u_curve2=  0.515625
+  Point 67: (  0.523438,   0.273987,   0.261719,   1.000000) | Parameters: u_curve=  0.523438, u_curve2=  0.523438
+  Point 68: (  0.531250,   0.282227,   0.265625,   1.000000) | Parameters: u_curve=  0.531250, u_curve2=  0.531250
+  Point 69: (  0.539062,   0.290588,   0.269531,   1.000000) | Parameters: u_curve=  0.539062, u_curve2=  0.539062
+  Point 70: (  0.546875,   0.299072,   0.273438,   1.000000) | Parameters: u_curve=  0.546875, u_curve2=  0.546875
+  Point 71: (  0.554688,   0.307678,   0.277344,   1.000000) | Parameters: u_curve=  0.554688, u_curve2=  0.554688
+  Point 72: (  0.562500,   0.316406,   0.281250,   1.000000) | Parameters: u_curve=  0.562500, u_curve2=  0.562500
+  Point 73: (  0.570312,   0.325256,   0.285156,   1.000000) | Parameters: u_curve=  0.570312, u_curve2=  0.570312
+  Point 74: (  0.578125,   0.334229,   0.289062,   1.000000) | Parameters: u_curve=  0.578125, u_curve2=  0.578125
+  Point 75: (  0.585938,   0.343323,   0.292969,   1.000000) | Parameters: u_curve=  0.585938, u_curve2=  0.585938
+  Point 76: (  0.593750,   0.352539,   0.296875,   1.000000) | Parameters: u_curve=  0.593750, u_curve2=  0.593750
+  Point 77: (  0.601562,   0.361877,   0.300781,   1.000000) | Parameters: u_curve=  0.601562, u_curve2=  0.601562
+  Point 78: (  0.609375,   0.371338,   0.304688,   1.000000) | Parameters: u_curve=  0.609375, u_curve2=  0.609375
+  Point 79: (  0.617188,   0.380920,   0.308594,   1.000000) | Parameters: u_curve=  0.617188, u_curve2=  0.617188
+  Point 80: (  0.625000,   0.390625,   0.312500,   1.000000) | Parameters: u_curve=  0.625000, u_curve2=  0.625000
+  Point 81: (  0.632812,   0.400452,   0.316406,   1.000000) | Parameters: u_curve=  0.632812, u_curve2=  0.632812
+  Point 82: (  0.640625,   0.410400,   0.320312,   1.000000) | Parameters: u_curve=  0.640625, u_curve2=  0.640625
+  Point 83: (  0.648438,   0.420471,   0.324219,   1.000000) | Parameters: u_curve=  0.648438, u_curve2=  0.648438
+  Point 84: (  0.656250,   0.430664,   0.328125,   1.000000) | Parameters: u_curve=  0.656250, u_curve2=  0.656250
+  Point 85: (  0.664062,   0.440979,   0.332031,   1.000000) | Parameters: u_curve=  0.664062, u_curve2=  0.664062
+  Point 86: (  0.671875,   0.451416,   0.335938,   1.000000) | Parameters: u_curve=  0.671875, u_curve2=  0.671875
+  Point 87: (  0.679688,   0.461975,   0.339844,   1.000000) | Parameters: u_curve=  0.679688, u_curve2=  0.679688
+  Point 88: (  0.687500,   0.472656,   0.343750,   1.000000) | Parameters: u_curve=  0.687500, u_curve2=  0.687500
+  Point 89: (  0.695312,   0.483459,   0.347656,   1.000000) | Parameters: u_curve=  0.695312, u_curve2=  0.695312
+  Point 90: (  0.703125,   0.494385,   0.351562,   1.000000) | Parameters: u_curve=  0.703125, u_curve2=  0.703125
+  Point 91: (  0.710938,   0.505432,   0.355469,   1.000000) | Parameters: u_curve=  0.710938, u_curve2=  0.710938
+  Point 92: (  0.718750,   0.516602,   0.359375,   1.000000) | Parameters: u_curve=  0.718750, u_curve2=  0.718750
+  Point 93: (  0.726562,   0.527893,   0.363281,   1.000000) | Parameters: u_curve=  0.726562, u_curve2=  0.726562
+  Point 94: (  0.734375,   0.539307,   0.367188,   1.000000) | Parameters: u_curve=  0.734375, u_curve2=  0.734375
+  Point 95: (  0.742188,   0.550842,   0.371094,   1.000000) | Parameters: u_curve=  0.742188, u_curve2=  0.742188
+  Point 96: (  0.750000,   0.562500,   0.375000,   1.000000) | Parameters: u_curve=  0.750000, u_curve2=  0.750000
+  Point 97: (  0.757812,   0.574280,   0.378906,   1.000000) | Parameters: u_curve=  0.757812, u_curve2=  0.757812
+  Point 98: (  0.765625,   0.586182,   0.382812,   1.000000) | Parameters: u_curve=  0.765625, u_curve2=  0.765625
+  Point 99: (  0.773438,   0.598206,   0.386719,   1.000000) | Parameters: u_curve=  0.773438, u_curve2=  0.773438
+  Point 100: (  0.781250,   0.610352,   0.390625,   1.000000) | Parameters: u_curve=  0.781250, u_curve2=  0.781250
+  Point 101: (  0.789062,   0.622620,   0.394531,   1.000000) | Parameters: u_curve=  0.789062, u_curve2=  0.789062
+  Point 102: (  0.796875,   0.635010,   0.398438,   1.000000) | Parameters: u_curve=  0.796875, u_curve2=  0.796875
+  Point 103: (  0.804688,   0.647522,   0.402344,   1.000000) | Parameters: u_curve=  0.804688, u_curve2=  0.804688
+  Point 104: (  0.812500,   0.660156,   0.406250,   1.000000) | Parameters: u_curve=  0.812500, u_curve2=  0.812500
+  Point 105: (  0.820312,   0.672913,   0.410156,   1.000000) | Parameters: u_curve=  0.820312, u_curve2=  0.820312
+  Point 106: (  0.828125,   0.685791,   0.414062,   1.000000) | Parameters: u_curve=  0.828125, u_curve2=  0.828125
+  Point 107: (  0.835938,   0.698792,   0.417969,   1.000000) | Parameters: u_curve=  0.835938, u_curve2=  0.835938
+  Point 108: (  0.843750,   0.711914,   0.421875,   1.000000) | Parameters: u_curve=  0.843750, u_curve2=  0.843750
+  Point 109: (  0.851562,   0.725159,   0.425781,   1.000000) | Parameters: u_curve=  0.851562, u_curve2=  0.851562
+  Point 110: (  0.859375,   0.738525,   0.429688,   1.000000) | Parameters: u_curve=  0.859375, u_curve2=  0.859375
+  Point 111: (  0.867188,   0.752014,   0.433594,   1.000000) | Parameters: u_curve=  0.867188, u_curve2=  0.867188
+  Point 112: (  0.875000,   0.765625,   0.437500,   1.000000) | Parameters: u_curve=  0.875000, u_curve2=  0.875000
+  Point 113: (  0.882812,   0.779358,   0.441406,   1.000000) | Parameters: u_curve=  0.882812, u_curve2=  0.882812
+  Point 114: (  0.890625,   0.793213,   0.445312,   1.000000) | Parameters: u_curve=  0.890625, u_curve2=  0.890625
+  Point 115: (  0.898438,   0.807190,   0.449219,   1.000000) | Parameters: u_curve=  0.898438, u_curve2=  0.898438
+  Point 116: (  0.906250,   0.821289,   0.453125,   1.000000) | Parameters: u_curve=  0.906250, u_curve2=  0.906250
+  Point 117: (  0.914062,   0.835510,   0.457031,   1.000000) | Parameters: u_curve=  0.914062, u_curve2=  0.914062
+  Point 118: (  0.921875,   0.849854,   0.460938,   1.000000) | Parameters: u_curve=  0.921875, u_curve2=  0.921875
+  Point 119: (  0.929688,   0.864319,   0.464844,   1.000000) | Parameters: u_curve=  0.929688, u_curve2=  0.929688
+  Point 120: (  0.937500,   0.878906,   0.468750,   1.000000) | Parameters: u_curve=  0.937500, u_curve2=  0.937500
+  Point 121: (  0.945312,   0.893616,   0.472656,   1.000000) | Parameters: u_curve=  0.945312, u_curve2=  0.945312
+  Point 122: (  0.953125,   0.908447,   0.476562,   1.000000) | Parameters: u_curve=  0.953125, u_curve2=  0.953125
+  Point 123: (  0.960938,   0.923401,   0.480469,   1.000000) | Parameters: u_curve=  0.960938, u_curve2=  0.960938
+  Point 124: (  0.968750,   0.938477,   0.484375,   1.000000) | Parameters: u_curve=  0.968750, u_curve2=  0.968750
+  Point 125: (  0.976562,   0.953674,   0.488281,   1.000000) | Parameters: u_curve=  0.976562, u_curve2=  0.976562
+  Point 126: (  0.984375,   0.968994,   0.492188,   1.000000) | Parameters: u_curve=  0.984375, u_curve2=  0.984375
+  Point 127: (  0.992188,   0.984436,   0.496094,   1.000000) | Parameters: u_curve=  0.992188, u_curve2=  0.992188
+✅ 4D polynomial–line: overlapping/identical (at least one intersection)
+----------------------------------------
+--- HD Case 4: 5D Tiny-Scale Curves ---
+Number of intersection points: 1
+  Point 0: (  0.000000,   0.000000,   0.000000,   0.000000,   0.000000) | Parameters: u_curve=  0.000000, u_curve2=  0.000000
+✅ 5D tiny-scale: overlapping curves (at least one intersection)
+----------------------------------------
+--- HD Case 5: Endpoint Touching (2D) ---
+Number of intersection points: 1
+  Point 0: (  1.000000,   0.000000) | Parameters: u_curve=  1.000000, u_curve2=  0.000000
+✅ Endpoint touching: expect 1 intersection at (1,0)
+✅ Endpoint touching: intersection at (1,0)
+----------------------------------------
+--- HD Case 6: Symmetry Check ---
+✅ Symmetry: intersect(A,B) ≈ intersect(B,A)
+----------------------------------------
+--- HD Case 7: Monte Carlo consistency (2D) ---
+✅ Monte Carlo identical-curve consistency (2D)
+----------------------------------------
+--- HD Case 8: Near-tangent perturbation ---
+✅ Near-tangent: stable solution within parameter domain
+----------------------------------------
+--- HD Case 9: Reversed-parameter symmetry ---
+[Debug] Result A→B size: 1, B→A size: 1
+  A→B:
+    [0] (0.000000, 0.000000) | u_curve=0.000000, u_curve2=1.000000
+  B→A:
+    [0] (1.000000, 0.300000) | u_curve=0.000000, u_curve2=1.000000
+✅ Reversed-parameter: intersect(A,B) == intersect(B,A)
+----------------------------------------
+--- HD Case 10: Reversed-parameter symmetry (3D) ---
+[Debug] Result 3D A→B size: 2, B→A size: 2
+  A→B:
+    [0] (0.500000, 0.150000, 0.250000) | u_curve=0.500000, u_curve2=0.500000
+    [1] (0.000000, 0.000000, 0.000000) | u_curve=0.000000, u_curve2=1.000000
+  B→A:
+    [0] (0.500000, 0.150000, 0.250000) | u_curve=0.500000, u_curve2=0.500000
+    [1] (1.000000, 0.300000, 0.500000) | u_curve=0.000000, u_curve2=1.000000
+✅ 3D Reversed-parameter: intersect(A,B) == intersect(B,A)
+----------------------------------------
+--- HD Case 11: Reversed-parameter symmetry (3D – bent curves) ---
+[Debug] Result 3D-bent A→B size: 128, B→A size: 128
+  A→B:
+    [0] (0.007812, 0.007251, 0.053846) | u_curve=0.007812, u_curve2=0.992188
+    [1] (0.000000, 0.000000, 0.050000) | u_curve=0.000000, u_curve2=1.000000
+    [2] (0.015625, 0.014489, 0.057572) | u_curve=0.015625, u_curve2=0.984375
+    [3] (0.023438, 0.021704, 0.061178) | u_curve=0.023438, u_curve2=0.976562
+    [4] (0.031250, 0.028884, 0.064664) | u_curve=0.031250, u_curve2=0.968750
+    [5] (0.039062, 0.036017, 0.068033) | u_curve=0.039062, u_curve2=0.960938
+    [6] (0.046875, 0.043091, 0.071285) | u_curve=0.046875, u_curve2=0.953125
+    [7] (0.054688, 0.050095, 0.074421) | u_curve=0.054688, u_curve2=0.945312
+    [8] (0.062500, 0.057018, 0.077444) | u_curve=0.062500, u_curve2=0.937500
+    [9] (0.070312, 0.063849, 0.080356) | u_curve=0.070312, u_curve2=0.929688
+    [10] (0.078125, 0.070577, 0.083159) | u_curve=0.078125, u_curve2=0.921875
+    [11] (0.085938, 0.077192, 0.085855) | u_curve=0.085938, u_curve2=0.914062
+    [12] (0.093750, 0.083682, 0.088448) | u_curve=0.093750, u_curve2=0.906250
+    [13] (0.101562, 0.090039, 0.090942) | u_curve=0.101562, u_curve2=0.898438
+    [14] (0.109375, 0.096252, 0.093338) | u_curve=0.109375, u_curve2=0.890625
+    [15] (0.117188, 0.102312, 0.095641) | u_curve=0.117188, u_curve2=0.882812
+    [16] (0.125000, 0.108211, 0.097855) | u_curve=0.125000, u_curve2=0.875000
+    [17] (0.132812, 0.113939, 0.099984) | u_curve=0.132812, u_curve2=0.867188
+    [18] (0.140625, 0.119489, 0.102032) | u_curve=0.140625, u_curve2=0.859375
+    [19] (0.148438, 0.124852, 0.104004) | u_curve=0.148438, u_curve2=0.851562
+    [20] (0.156250, 0.130022, 0.105904) | u_curve=0.156250, u_curve2=0.843750
+    [21] (0.164062, 0.134992, 0.107736) | u_curve=0.164062, u_curve2=0.835938
+    [22] (0.171875, 0.139755, 0.109507) | u_curve=0.171875, u_curve2=0.828125
+    [23] (0.179688, 0.144305, 0.111222) | u_curve=0.179688, u_curve2=0.820312
+    [24] (0.187500, 0.148638, 0.112884) | u_curve=0.187500, u_curve2=0.812500
+    [25] (0.195312, 0.152748, 0.114501) | u_curve=0.195312, u_curve2=0.804688
+    [26] (0.203125, 0.156632, 0.116077) | u_curve=0.203125, u_curve2=0.796875
+    [27] (0.210938, 0.160284, 0.117618) | u_curve=0.210938, u_curve2=0.789062
+    [28] (0.218750, 0.163704, 0.119130) | u_curve=0.218750, u_curve2=0.781250
+    [29] (0.226562, 0.166886, 0.120618) | u_curve=0.226562, u_curve2=0.773438
+    [30] (0.234375, 0.169831, 0.122088) | u_curve=0.234375, u_curve2=0.765625
+    [31] (0.242188, 0.172536, 0.123547) | u_curve=0.242188, u_curve2=0.757812
+    [32] (0.250000, 0.175000, 0.125000) | u_curve=0.250000, u_curve2=0.750000
+    [33] (0.257812, 0.177223, 0.126453) | u_curve=0.257812, u_curve2=0.742188
+    [34] (0.265625, 0.179206, 0.127912) | u_curve=0.265625, u_curve2=0.734375
+    [35] (0.273438, 0.180949, 0.129382) | u_curve=0.273438, u_curve2=0.726562
+    [36] (0.281250, 0.182454, 0.130870) | u_curve=0.281250, u_curve2=0.718750
+    [37] (0.289062, 0.183722, 0.132382) | u_curve=0.289062, u_curve2=0.710938
+    [38] (0.296875, 0.184757, 0.133923) | u_curve=0.296875, u_curve2=0.703125
+    [39] (0.304688, 0.185561, 0.135499) | u_curve=0.304688, u_curve2=0.695312
+    [40] (0.312500, 0.186138, 0.137116) | u_curve=0.312500, u_curve2=0.687500
+    [41] (0.320312, 0.186493, 0.138778) | u_curve=0.320312, u_curve2=0.679688
+    [42] (0.328125, 0.186630, 0.140493) | u_curve=0.328125, u_curve2=0.671875
+    [43] (0.335938, 0.186554, 0.142264) | u_curve=0.335938, u_curve2=0.664062
+    [44] (0.343750, 0.186272, 0.144096) | u_curve=0.343750, u_curve2=0.656250
+    [45] (0.351562, 0.185790, 0.145996) | u_curve=0.351562, u_curve2=0.648438
+    [46] (0.359375, 0.185114, 0.147968) | u_curve=0.359375, u_curve2=0.640625
+    [47] (0.367188, 0.184251, 0.150016) | u_curve=0.367188, u_curve2=0.632812
+    [48] (0.375000, 0.183211, 0.152145) | u_curve=0.375000, u_curve2=0.625000
+    [49] (0.382812, 0.182000, 0.154359) | u_curve=0.382812, u_curve2=0.617188
+    [50] (0.390625, 0.180627, 0.156662) | u_curve=0.390625, u_curve2=0.609375
+    [51] (0.398438, 0.179101, 0.159058) | u_curve=0.398438, u_curve2=0.601562
+    [52] (0.406250, 0.177432, 0.161552) | u_curve=0.406250, u_curve2=0.593750
+    [53] (0.414062, 0.175629, 0.164145) | u_curve=0.414062, u_curve2=0.585938
+    [54] (0.421875, 0.173702, 0.166841) | u_curve=0.421875, u_curve2=0.578125
+    [55] (0.429688, 0.171662, 0.169644) | u_curve=0.429688, u_curve2=0.570312
+    [56] (0.437500, 0.169518, 0.172556) | u_curve=0.437500, u_curve2=0.562500
+    [57] (0.445312, 0.167283, 0.175579) | u_curve=0.445312, u_curve2=0.554688
+    [58] (0.453125, 0.164966, 0.178715) | u_curve=0.453125, u_curve2=0.546875
+    [59] (0.460938, 0.162579, 0.181967) | u_curve=0.460938, u_curve2=0.539062
+    [60] (0.468750, 0.160134, 0.185336) | u_curve=0.468750, u_curve2=0.531250
+    [61] (0.476562, 0.157642, 0.188822) | u_curve=0.476562, u_curve2=0.523438
+    [62] (0.484375, 0.155114, 0.192428) | u_curve=0.484375, u_curve2=0.515625
+    [63] (0.492188, 0.152563, 0.196154) | u_curve=0.492188, u_curve2=0.507812
+    [64] (0.500000, 0.150000, 0.200000) | u_curve=0.500000, u_curve2=0.500000
+    [65] (0.507812, 0.147437, 0.203966) | u_curve=0.507812, u_curve2=0.492188
+    [66] (0.515625, 0.144886, 0.208053) | u_curve=0.515625, u_curve2=0.484375
+    [67] (0.523438, 0.142358, 0.212260) | u_curve=0.523438, u_curve2=0.476562
+    [68] (0.531250, 0.139866, 0.216586) | u_curve=0.531250, u_curve2=0.468750
+    [69] (0.539062, 0.137421, 0.221030) | u_curve=0.539062, u_curve2=0.460938
+    [70] (0.546875, 0.135034, 0.225590) | u_curve=0.546875, u_curve2=0.453125
+    [71] (0.554688, 0.132717, 0.230267) | u_curve=0.554688, u_curve2=0.445312
+    [72] (0.562500, 0.130482, 0.235056) | u_curve=0.562500, u_curve2=0.437500
+    [73] (0.570312, 0.128338, 0.239957) | u_curve=0.570312, u_curve2=0.429688
+    [74] (0.578125, 0.126298, 0.244966) | u_curve=0.578125, u_curve2=0.421875
+    [75] (0.585938, 0.124371, 0.250082) | u_curve=0.585938, u_curve2=0.414062
+    [76] (0.593750, 0.122568, 0.255302) | u_curve=0.593750, u_curve2=0.406250
+    [77] (0.601562, 0.120899, 0.260621) | u_curve=0.601562, u_curve2=0.398438
+    [78] (0.609375, 0.119373, 0.266037) | u_curve=0.609375, u_curve2=0.390625
+    [79] (0.617188, 0.118000, 0.271546) | u_curve=0.617188, u_curve2=0.382812
+    [80] (0.625000, 0.116789, 0.277145) | u_curve=0.625000, u_curve2=0.375000
+    [81] (0.632812, 0.115749, 0.282828) | u_curve=0.632812, u_curve2=0.367188
+    [82] (0.640625, 0.114886, 0.288593) | u_curve=0.640625, u_curve2=0.359375
+    [83] (0.648438, 0.114210, 0.294434) | u_curve=0.648438, u_curve2=0.351562
+    [84] (0.656250, 0.113728, 0.300346) | u_curve=0.656250, u_curve2=0.343750
+    [85] (0.664062, 0.113446, 0.306326) | u_curve=0.664062, u_curve2=0.335938
+    [86] (0.671875, 0.113370, 0.312368) | u_curve=0.671875, u_curve2=0.328125
+    [87] (0.679688, 0.113507, 0.318466) | u_curve=0.679688, u_curve2=0.320312
+    [88] (0.687500, 0.113862, 0.324616) | u_curve=0.687500, u_curve2=0.312500
+    [89] (0.695312, 0.114439, 0.330812) | u_curve=0.695312, u_curve2=0.304688
+    [90] (0.703125, 0.115243, 0.337048) | u_curve=0.703125, u_curve2=0.296875
+    [91] (0.710938, 0.116278, 0.343320) | u_curve=0.710938, u_curve2=0.289062
+    [92] (0.718750, 0.117546, 0.349620) | u_curve=0.718750, u_curve2=0.281250
+    [93] (0.726562, 0.119051, 0.355945) | u_curve=0.726562, u_curve2=0.273438
+    [94] (0.734375, 0.120794, 0.362287) | u_curve=0.734375, u_curve2=0.265625
+    [95] (0.742188, 0.122777, 0.368640) | u_curve=0.742188, u_curve2=0.257812
+    [96] (0.750000, 0.125000, 0.375000) | u_curve=0.750000, u_curve2=0.250000
+    [97] (0.757812, 0.127464, 0.381360) | u_curve=0.757812, u_curve2=0.242188
+    [98] (0.765625, 0.130169, 0.387713) | u_curve=0.765625, u_curve2=0.234375
+    [99] (0.773438, 0.133114, 0.394055) | u_curve=0.773438, u_curve2=0.226562
+    [100] (0.781250, 0.136296, 0.400380) | u_curve=0.781250, u_curve2=0.218750
+    [101] (0.789062, 0.139716, 0.406680) | u_curve=0.789062, u_curve2=0.210938
+    [102] (0.796875, 0.143368, 0.412952) | u_curve=0.796875, u_curve2=0.203125
+    [103] (0.804688, 0.147252, 0.419188) | u_curve=0.804688, u_curve2=0.195312
+    [104] (0.812500, 0.151362, 0.425384) | u_curve=0.812500, u_curve2=0.187500
+    [105] (0.820312, 0.155695, 0.431534) | u_curve=0.820312, u_curve2=0.179688
+    [106] (0.828125, 0.160245, 0.437632) | u_curve=0.828125, u_curve2=0.171875
+    [107] (0.835938, 0.165008, 0.443674) | u_curve=0.835938, u_curve2=0.164062
+    [108] (0.843750, 0.169978, 0.449654) | u_curve=0.843750, u_curve2=0.156250
+    [109] (0.851562, 0.175148, 0.455566) | u_curve=0.851562, u_curve2=0.148438
+    [110] (0.859375, 0.180511, 0.461407) | u_curve=0.859375, u_curve2=0.140625
+    [111] (0.867188, 0.186061, 0.467172) | u_curve=0.867188, u_curve2=0.132812
+    [112] (0.875000, 0.191789, 0.472855) | u_curve=0.875000, u_curve2=0.125000
+    [113] (0.882812, 0.197688, 0.478454) | u_curve=0.882812, u_curve2=0.117188
+    [114] (0.890625, 0.203748, 0.483963) | u_curve=0.890625, u_curve2=0.109375
+    [115] (0.898438, 0.209961, 0.489379) | u_curve=0.898438, u_curve2=0.101562
+    [116] (0.906250, 0.216318, 0.494698) | u_curve=0.906250, u_curve2=0.093750
+    [117] (0.914062, 0.222808, 0.499918) | u_curve=0.914062, u_curve2=0.085938
+    [118] (0.921875, 0.229423, 0.505034) | u_curve=0.921875, u_curve2=0.078125
+    [119] (0.929688, 0.236151, 0.510043) | u_curve=0.929688, u_curve2=0.070312
+    [120] (0.937500, 0.242982, 0.514944) | u_curve=0.937500, u_curve2=0.062500
+    [121] (0.945312, 0.249905, 0.519733) | u_curve=0.945312, u_curve2=0.054688
+    [122] (0.953125, 0.256909, 0.524410) | u_curve=0.953125, u_curve2=0.046875
+    [123] (0.960938, 0.263983, 0.528970) | u_curve=0.960938, u_curve2=0.039062
+    [124] (0.968750, 0.271116, 0.533414) | u_curve=0.968750, u_curve2=0.031250
+    [125] (0.976562, 0.278296, 0.537740) | u_curve=0.976562, u_curve2=0.023438
+    [126] (0.984375, 0.285511, 0.541947) | u_curve=0.984375, u_curve2=0.015625
+    [127] (0.992188, 0.292749, 0.546034) | u_curve=0.992188, u_curve2=0.007812
+  B→A:
+    [0] (0.992188, 0.292749, 0.546034) | u_curve=0.007812, u_curve2=0.992188
+    [1] (1.000000, 0.300000, 0.550000) | u_curve=0.000000, u_curve2=1.000000
+    [2] (0.984375, 0.285511, 0.541947) | u_curve=0.015625, u_curve2=0.984375
+    [3] (0.976562, 0.278296, 0.537740) | u_curve=0.023438, u_curve2=0.976562
+    [4] (0.968750, 0.271116, 0.533414) | u_curve=0.031250, u_curve2=0.968750
+    [5] (0.960938, 0.263983, 0.528970) | u_curve=0.039062, u_curve2=0.960938
+    [6] (0.953125, 0.256909, 0.524410) | u_curve=0.046875, u_curve2=0.953125
+    [7] (0.945312, 0.249905, 0.519733) | u_curve=0.054688, u_curve2=0.945312
+    [8] (0.937500, 0.242982, 0.514944) | u_curve=0.062500, u_curve2=0.937500
+    [9] (0.929688, 0.236151, 0.510043) | u_curve=0.070312, u_curve2=0.929688
+    [10] (0.921875, 0.229423, 0.505034) | u_curve=0.078125, u_curve2=0.921875
+    [11] (0.914062, 0.222808, 0.499918) | u_curve=0.085938, u_curve2=0.914062
+    [12] (0.906250, 0.216318, 0.494698) | u_curve=0.093750, u_curve2=0.906250
+    [13] (0.898438, 0.209961, 0.489379) | u_curve=0.101562, u_curve2=0.898438
+    [14] (0.890625, 0.203748, 0.483963) | u_curve=0.109375, u_curve2=0.890625
+    [15] (0.882812, 0.197688, 0.478454) | u_curve=0.117188, u_curve2=0.882812
+    [16] (0.875000, 0.191789, 0.472855) | u_curve=0.125000, u_curve2=0.875000
+    [17] (0.867188, 0.186061, 0.467172) | u_curve=0.132812, u_curve2=0.867188
+    [18] (0.859375, 0.180511, 0.461407) | u_curve=0.140625, u_curve2=0.859375
+    [19] (0.851562, 0.175148, 0.455566) | u_curve=0.148438, u_curve2=0.851562
+    [20] (0.843750, 0.169978, 0.449654) | u_curve=0.156250, u_curve2=0.843750
+    [21] (0.835938, 0.165008, 0.443674) | u_curve=0.164062, u_curve2=0.835938
+    [22] (0.828125, 0.160245, 0.437632) | u_curve=0.171875, u_curve2=0.828125
+    [23] (0.820312, 0.155695, 0.431534) | u_curve=0.179688, u_curve2=0.820312
+    [24] (0.812500, 0.151362, 0.425384) | u_curve=0.187500, u_curve2=0.812500
+    [25] (0.804688, 0.147252, 0.419188) | u_curve=0.195312, u_curve2=0.804688
+    [26] (0.796875, 0.143368, 0.412952) | u_curve=0.203125, u_curve2=0.796875
+    [27] (0.789062, 0.139716, 0.406680) | u_curve=0.210938, u_curve2=0.789062
+    [28] (0.781250, 0.136296, 0.400380) | u_curve=0.218750, u_curve2=0.781250
+    [29] (0.773438, 0.133114, 0.394055) | u_curve=0.226562, u_curve2=0.773438
+    [30] (0.765625, 0.130169, 0.387713) | u_curve=0.234375, u_curve2=0.765625
+    [31] (0.757812, 0.127464, 0.381360) | u_curve=0.242188, u_curve2=0.757812
+    [32] (0.750000, 0.125000, 0.375000) | u_curve=0.250000, u_curve2=0.750000
+    [33] (0.742188, 0.122777, 0.368640) | u_curve=0.257812, u_curve2=0.742188
+    [34] (0.734375, 0.120794, 0.362287) | u_curve=0.265625, u_curve2=0.734375
+    [35] (0.726562, 0.119051, 0.355945) | u_curve=0.273438, u_curve2=0.726562
+    [36] (0.718750, 0.117546, 0.349620) | u_curve=0.281250, u_curve2=0.718750
+    [37] (0.710938, 0.116278, 0.343320) | u_curve=0.289062, u_curve2=0.710938
+    [38] (0.703125, 0.115243, 0.337048) | u_curve=0.296875, u_curve2=0.703125
+    [39] (0.695312, 0.114439, 0.330812) | u_curve=0.304688, u_curve2=0.695312
+    [40] (0.687500, 0.113862, 0.324616) | u_curve=0.312500, u_curve2=0.687500
+    [41] (0.679688, 0.113507, 0.318466) | u_curve=0.320312, u_curve2=0.679688
+    [42] (0.671875, 0.113370, 0.312368) | u_curve=0.328125, u_curve2=0.671875
+    [43] (0.664062, 0.113446, 0.306326) | u_curve=0.335938, u_curve2=0.664062
+    [44] (0.656250, 0.113728, 0.300346) | u_curve=0.343750, u_curve2=0.656250
+    [45] (0.648438, 0.114210, 0.294434) | u_curve=0.351562, u_curve2=0.648438
+    [46] (0.640625, 0.114886, 0.288593) | u_curve=0.359375, u_curve2=0.640625
+    [47] (0.632812, 0.115749, 0.282828) | u_curve=0.367188, u_curve2=0.632812
+    [48] (0.625000, 0.116789, 0.277145) | u_curve=0.375000, u_curve2=0.625000
+    [49] (0.617188, 0.118000, 0.271546) | u_curve=0.382812, u_curve2=0.617188
+    [50] (0.609375, 0.119373, 0.266037) | u_curve=0.390625, u_curve2=0.609375
+    [51] (0.601562, 0.120899, 0.260621) | u_curve=0.398438, u_curve2=0.601562
+    [52] (0.593750, 0.122568, 0.255302) | u_curve=0.406250, u_curve2=0.593750
+    [53] (0.585938, 0.124371, 0.250082) | u_curve=0.414062, u_curve2=0.585938
+    [54] (0.578125, 0.126298, 0.244966) | u_curve=0.421875, u_curve2=0.578125
+    [55] (0.570312, 0.128338, 0.239957) | u_curve=0.429688, u_curve2=0.570312
+    [56] (0.562500, 0.130482, 0.235056) | u_curve=0.437500, u_curve2=0.562500
+    [57] (0.554688, 0.132717, 0.230267) | u_curve=0.445312, u_curve2=0.554688
+    [58] (0.546875, 0.135034, 0.225590) | u_curve=0.453125, u_curve2=0.546875
+    [59] (0.539062, 0.137421, 0.221030) | u_curve=0.460938, u_curve2=0.539062
+    [60] (0.531250, 0.139866, 0.216586) | u_curve=0.468750, u_curve2=0.531250
+    [61] (0.523438, 0.142358, 0.212260) | u_curve=0.476562, u_curve2=0.523438
+    [62] (0.515625, 0.144886, 0.208053) | u_curve=0.484375, u_curve2=0.515625
+    [63] (0.507812, 0.147437, 0.203966) | u_curve=0.492188, u_curve2=0.507812
+    [64] (0.500000, 0.150000, 0.200000) | u_curve=0.500000, u_curve2=0.500000
+    [65] (0.492188, 0.152563, 0.196154) | u_curve=0.507812, u_curve2=0.492188
+    [66] (0.484375, 0.155114, 0.192428) | u_curve=0.515625, u_curve2=0.484375
+    [67] (0.476562, 0.157642, 0.188822) | u_curve=0.523438, u_curve2=0.476562
+    [68] (0.468750, 0.160134, 0.185336) | u_curve=0.531250, u_curve2=0.468750
+    [69] (0.460938, 0.162579, 0.181967) | u_curve=0.539062, u_curve2=0.460938
+    [70] (0.453125, 0.164966, 0.178715) | u_curve=0.546875, u_curve2=0.453125
+    [71] (0.445312, 0.167283, 0.175579) | u_curve=0.554688, u_curve2=0.445312
+    [72] (0.437500, 0.169518, 0.172556) | u_curve=0.562500, u_curve2=0.437500
+    [73] (0.429688, 0.171662, 0.169644) | u_curve=0.570312, u_curve2=0.429688
+    [74] (0.421875, 0.173702, 0.166841) | u_curve=0.578125, u_curve2=0.421875
+    [75] (0.414062, 0.175629, 0.164145) | u_curve=0.585938, u_curve2=0.414062
+    [76] (0.406250, 0.177432, 0.161552) | u_curve=0.593750, u_curve2=0.406250
+    [77] (0.398438, 0.179101, 0.159058) | u_curve=0.601562, u_curve2=0.398438
+    [78] (0.390625, 0.180627, 0.156662) | u_curve=0.609375, u_curve2=0.390625
+    [79] (0.382812, 0.182000, 0.154359) | u_curve=0.617188, u_curve2=0.382812
+    [80] (0.375000, 0.183211, 0.152145) | u_curve=0.625000, u_curve2=0.375000
+    [81] (0.367188, 0.184251, 0.150016) | u_curve=0.632812, u_curve2=0.367188
+    [82] (0.359375, 0.185114, 0.147968) | u_curve=0.640625, u_curve2=0.359375
+    [83] (0.351562, 0.185790, 0.145996) | u_curve=0.648438, u_curve2=0.351562
+    [84] (0.343750, 0.186272, 0.144096) | u_curve=0.656250, u_curve2=0.343750
+    [85] (0.335938, 0.186554, 0.142264) | u_curve=0.664062, u_curve2=0.335938
+    [86] (0.328125, 0.186630, 0.140493) | u_curve=0.671875, u_curve2=0.328125
+    [87] (0.320312, 0.186493, 0.138778) | u_curve=0.679688, u_curve2=0.320312
+    [88] (0.312500, 0.186138, 0.137116) | u_curve=0.687500, u_curve2=0.312500
+    [89] (0.304688, 0.185561, 0.135499) | u_curve=0.695312, u_curve2=0.304688
+    [90] (0.296875, 0.184757, 0.133923) | u_curve=0.703125, u_curve2=0.296875
+    [91] (0.289062, 0.183722, 0.132382) | u_curve=0.710938, u_curve2=0.289062
+    [92] (0.281250, 0.182454, 0.130870) | u_curve=0.718750, u_curve2=0.281250
+    [93] (0.273438, 0.180949, 0.129382) | u_curve=0.726562, u_curve2=0.273438
+    [94] (0.265625, 0.179206, 0.127912) | u_curve=0.734375, u_curve2=0.265625
+    [95] (0.257812, 0.177223, 0.126453) | u_curve=0.742188, u_curve2=0.257812
+    [96] (0.250000, 0.175000, 0.125000) | u_curve=0.750000, u_curve2=0.250000
+    [97] (0.242188, 0.172536, 0.123547) | u_curve=0.757812, u_curve2=0.242188
+    [98] (0.234375, 0.169831, 0.122088) | u_curve=0.765625, u_curve2=0.234375
+    [99] (0.226562, 0.166886, 0.120618) | u_curve=0.773438, u_curve2=0.226562
+    [100] (0.218750, 0.163704, 0.119130) | u_curve=0.781250, u_curve2=0.218750
+    [101] (0.210938, 0.160284, 0.117618) | u_curve=0.789062, u_curve2=0.210938
+    [102] (0.203125, 0.156632, 0.116077) | u_curve=0.796875, u_curve2=0.203125
+    [103] (0.195312, 0.152748, 0.114501) | u_curve=0.804688, u_curve2=0.195312
+    [104] (0.187500, 0.148638, 0.112884) | u_curve=0.812500, u_curve2=0.187500
+    [105] (0.179688, 0.144305, 0.111222) | u_curve=0.820312, u_curve2=0.179688
+    [106] (0.171875, 0.139755, 0.109507) | u_curve=0.828125, u_curve2=0.171875
+    [107] (0.164062, 0.134992, 0.107736) | u_curve=0.835938, u_curve2=0.164062
+    [108] (0.156250, 0.130022, 0.105904) | u_curve=0.843750, u_curve2=0.156250
+    [109] (0.148438, 0.124852, 0.104004) | u_curve=0.851562, u_curve2=0.148438
+    [110] (0.140625, 0.119489, 0.102032) | u_curve=0.859375, u_curve2=0.140625
+    [111] (0.132812, 0.113939, 0.099984) | u_curve=0.867188, u_curve2=0.132812
+    [112] (0.125000, 0.108211, 0.097855) | u_curve=0.875000, u_curve2=0.125000
+    [113] (0.117188, 0.102312, 0.095641) | u_curve=0.882812, u_curve2=0.117188
+    [114] (0.109375, 0.096252, 0.093338) | u_curve=0.890625, u_curve2=0.109375
+    [115] (0.101562, 0.090039, 0.090942) | u_curve=0.898438, u_curve2=0.101562
+    [116] (0.093750, 0.083682, 0.088448) | u_curve=0.906250, u_curve2=0.093750
+    [117] (0.085938, 0.077192, 0.085855) | u_curve=0.914062, u_curve2=0.085938
+    [118] (0.078125, 0.070577, 0.083159) | u_curve=0.921875, u_curve2=0.078125
+    [119] (0.070312, 0.063849, 0.080356) | u_curve=0.929688, u_curve2=0.070312
+    [120] (0.062500, 0.057018, 0.077444) | u_curve=0.937500, u_curve2=0.062500
+    [121] (0.054688, 0.050095, 0.074421) | u_curve=0.945312, u_curve2=0.054688
+    [122] (0.046875, 0.043091, 0.071285) | u_curve=0.953125, u_curve2=0.046875
+    [123] (0.039062, 0.036017, 0.068033) | u_curve=0.960938, u_curve2=0.039062
+    [124] (0.031250, 0.028884, 0.064664) | u_curve=0.968750, u_curve2=0.031250
+    [125] (0.023438, 0.021704, 0.061178) | u_curve=0.976562, u_curve2=0.023438
+    [126] (0.015625, 0.014489, 0.057572) | u_curve=0.984375, u_curve2=0.015625
+    [127] (0.007812, 0.007251, 0.053846) | u_curve=0.992188, u_curve2=0.007812
+✅ 3D-bent Reversed-parameter: intersect(A,B) == intersect(B,A)
+----------------------------------------
+
+
+∿ Testing Bezier and NURBS Intersections:
+
+∿ Debugging toCurve() evaluation
+Bezier toCurve() sampled points:
+  t= 0.000 → (0.000 0.000)
+  t= 0.200 → (0.200 0.320)
+  t= 0.400 → (0.400 0.480)
+  t= 0.600 → (0.600 0.480)
+  t= 0.800 → (0.800 0.320)
+  t= 1.000 → (1.000 0.000)
+
+NURBS toCurve() domain: [0.000, 1.000]
+NURBS toCurve() sampled points:
+  t= 0.000 → (1.000 0.000)
+  t= 0.200 → (0.883 0.221)
+  t= 0.400 → (0.698 0.465)
+  t= 0.600 → (0.465 0.698)
+  t= 0.800 → (0.221 0.883)
+  t= 1.000 → (0.000 1.000)
+--- Bezier–Bezier (2D) ---
+Number of intersection points: 1
+  Point 0: (  0.500000,   0.500000) | Parameters: u_curve=  0.500000, u_curve2=  0.500000
+✅ Bezier–Bezier intersection: expect 1 at (0.5,0.5)
+----------------------------------------
+--- Bezier–NURBS (2D) ---
+Number of intersection points: 2
+  Point 0: (  1.000000,   0.000000) | Parameters: u_curve=  0.000000, u_curve2=  0.000000
+  Point 1: (  0.000000,   1.000000) | Parameters: u_curve=  1.000000, u_curve2=  1.000000
+✅ Bezier–NURBS intersection: expect ≥1 at (1,0)
+----------------------------------------
+--- NURBS–NURBS (2D) ---
+Number of intersection points: 1
+  Point 0: (  1.000000,   0.000000) | Parameters: u_curve=  0.000000, u_curve2=  0.000000
+✅ NURBS–NURBS intersection: expect 1 at (1,0)
+----------------------------------------
+--- Higher-Dimensional Bezier and NURBS Intersections ---
+--- Bezier–Bezier (3D) ---
+Number of intersection points: 1
+  Point 0: (  0.500000,   0.250000,   0.000000) | Parameters: u_curve=  0.500000, u_curve2=  0.750000
+✅ Bezier–Bezier (3D): expect 1 intersection near (0.5,0,0)
+--- NURBS–NURBS (3D) ---
+Number of intersection points: 1
+  Point 0: (  1.000000,   0.000000,   0.000000) | Parameters: u_curve=  0.000000, u_curve2=  0.000000
+✅ NURBS–NURBS (3D): expect ≥1 intersection near (1,0,0)
+--- Bezier–NURBS (3D) ---
+Number of intersection points: 2
+  Point 0: (  1.000000,   0.000000,   0.000000) | Parameters: u_curve=  0.000000, u_curve2=  0.000000
+  Point 1: (  0.000000,   1.000000,   0.000000) | Parameters: u_curve=  1.000000, u_curve2=  1.000000
+✅ Bezier–NURBS (3D): expect ≥1 intersection near (1,0,0)
+----------------------------------------
+∿ testCurvePlaneIntersection: ✅ (stub)
+∿ testCurveFaceIntersection: ✅ (stub)
+∿ testCurveSurfaceIntersection: ✅ (stub)
+--- End of Euclid Unit Tests ---
